@@ -1,0 +1,33 @@
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+
+# Editor / AI tooling (do not commit)
+.cursor/
+.cursorignore
+*.cursor*
+.vscode/
+.idea/
+*.code-workspace
+
+# Go
+bin/
+dist/
+*.test
+*.out
+coverage.html
+vendor/
+
+# Node / Svelte
+web/node_modules/
+web/.svelte-kit/
+web/build/
+web/.vite/
+
+# Local / OS
+local/
+tmp/
+*.json.bin
+Thumbs.db

@@ -1,0 +1,15 @@
+# API image build (context = repo root)
+.git
+**/.git
+**/node_modules
+web/node_modules
+web/.svelte-kit
+web/build
+**/.DS_Store
+**/tmp
+**/*.md
+examples
+sdk
+schema
+ops/compose.yaml
+ops/nginx.conf

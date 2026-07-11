@@ -1,0 +1,23 @@
+# Build from repo root:
+#   docker build -f ops/Dockerfile.api -t recension-api .
+FROM golang:1.26-alpine3.24 AS build
+WORKDIR /src
+ENV GOTOOLCHAIN=auto
+RUN apk add --no-cache ca-certificates git
+
+COPY api/go.mod api/go.sum ./api/
+COPY pkg ./pkg
+WORKDIR /src/api
+RUN go mod download
+
+COPY api/ ./
+RUN go mod download \
+	&& CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/recension-api ./cmd/server
+
+FROM alpine:3.24
+RUN apk add --no-cache ca-certificates tzdata \
+	&& adduser -D -H -u 10001 recension
+USER recension
+COPY --from=build /out/recension-api /usr/local/bin/recension-api
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/recension-api"]
