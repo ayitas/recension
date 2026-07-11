@@ -12,6 +12,12 @@ Continuous regression testing for engineering teams.
 
 Recension captures how your software actually behaves for each test case, compares that behavior across versions, and lets your team promote a trusted **baseline** — so unintended changes surface before they reach production.
 
+**Repo:** [github.com/ayitas/recension](https://github.com/ayitas/recension)
+
+[![OpenAPI 3.2.0](https://img.shields.io/badge/OpenAPI-3.2.0-6BA539?logo=openapiinitiative&logoColor=white)](openapi.yaml)
+[![Swagger Editor](https://img.shields.io/badge/Open%20in-Swagger%20Editor-85EA2D?logo=swagger&logoColor=black)](https://editor.swagger.io/?url=https://raw.githubusercontent.com/ayitas/recension/dev/openapi.yaml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-planned-lightgrey)](#license)
+
 ## Why the name?
 
 In textual criticism, a **recension** is the trusted form of a work established by comparing its variants. Recension applies the same idea to software: your SDK records workflow behavior, the server collates versions, and your team authorizes a baseline — a living recension of what “correct” means.
@@ -35,6 +41,7 @@ See also [`docs/why-recension.md`](docs/why-recension.md).
 | Database | PostgreSQL **17.10** (Alpine) |
 | Object storage | MinIO (S3-compatible) |
 | Gateway | nginx **1.30-alpine** (`/` → web, `/v1` + `/healthz` → api) |
+| API contract | OpenAPI **3.2.0** — [`openapi.yaml`](openapi.yaml) |
 | Workspace | Go workspace (`go.work`) across `api`, `pkg`, `sdk/go`, examples |
 
 ## Layout
@@ -44,14 +51,13 @@ recension/
 ├── api/                 # HTTP server (cmd/server + internal/)
 ├── sdk/go/              # Go SDK
 ├── pkg/
-│   ├── message/         # Shared message types
+│   ├── message/         # Shared wire types (submit payload)
 │   └── compare/         # Behavioral comparator
 ├── web/                 # SvelteKit dashboard
 ├── examples/go/
-│   ├── minimal/         # Text/check workflow demo
+│   ├── minimal/         # Check/metric workflow demo (+ README)
 │   └── blobs/           # Binary artifact / MinIO demo
-├── schema/              # JSON message schema
-├── scripts/             # Smoke tests (hardening, blobs)
+├── scripts/             # Smoke tests + seed helpers (hardening, blobs, metrics)
 ├── docs/
 │   ├── why-recension.md
 │   └── brand/           # Logo, banner, favicon sizes
@@ -60,6 +66,7 @@ recension/
 │   ├── Dockerfile.api
 │   ├── Dockerfile.web
 │   └── nginx.conf
+├── openapi.yaml         # OpenAPI 3.2.0 (HTTP API contract)
 ├── Makefile
 ├── .env.example
 └── go.work
@@ -114,14 +121,20 @@ Vite proxies `/v1` and `/healthz` to `http://localhost:8080`.
 
 Default DB URL: `postgres://recension:recension@localhost:5432/recension?sslmode=disable`
 
-### Dashboard login (bootstrap)
+### Dashboard access
+
+**Bootstrap user** (when `RECENSION_BOOTSTRAP=true`, default in development):
 
 | | |
 |--|--|
 | Email | `dev@recension.local` |
 | Password | `dev-password` |
 
-Bootstrap also seeds team `acme` and suite `students`. Create additional teams/suites in the dashboard before submitting to them — the SDK does not auto-create namespaces.
+Bootstrap also seeds team `acme` (bootstrap user as **owner**) and suites `students`, `artifacts`, and `exports`.
+
+**Sign up** is enabled locally (`RECENSION_ALLOW_SIGNUP=true`). Email is only an account identifier — no verification email is sent. Password min 8 characters. Create additional teams/suites in the dashboard before submitting to them — the SDK does not auto-create namespaces.
+
+Session tokens last **7 days** by default (`RECENSION_SESSION_TTL=168h`).
 
 ## Make targets
 
@@ -141,11 +154,12 @@ make help                 # list all targets
 | `make install` | Install Go + npm deps |
 | `make deps` | Start postgres + minio |
 | `make api` / `make web` | Run locally |
-| `make example` | Minimal Go example (`REV=…`) |
+| `make example` | Minimal Go example (`REV=…`) — includes timer metrics |
 | `make example-blobs` | Blobs example (`REV=…` `BREAK=1`) |
-| `make test` | Go unit tests (`pkg`, `sdk/go`) |
+| `make test` | Go unit tests (`pkg`, `sdk/go`, `api`) |
 | `make check` | Web typecheck |
 | `make smoke` | All smoke scripts |
+| `bash scripts/seed-metrics.sh` | Seed 20 testcases with metric diffs for UI demo |
 
 ## Configuration
 
@@ -155,28 +169,47 @@ Copy [`.env.example`](.env.example) → `.env` (`make env`). Key variables:
 |----------|---------|
 | `RECENSION_ENV` | `development` / `production` |
 | `RECENSION_PORT` | API listen port (default `8080`) |
-| `RECENSION_API_KEY` | Client submit key |
+| `RECENSION_API_KEY` | Client submit key (`X-Recension-API-Key`) |
 | `RECENSION_BOOTSTRAP_PASSWORD` | Seeded admin password |
 | `RECENSION_SESSION_SECRET` | Session signing secret |
+| `RECENSION_SESSION_TTL` | Session lifetime (default `168h`) |
 | `RECENSION_BOOTSTRAP` | Seed local user/team on startup |
-| `RECENSION_ALLOW_SIGNUP` | Public signup |
+| `RECENSION_ALLOW_SIGNUP` | Public signup (no email delivery) |
 | `RECENSION_CORS_ORIGINS` | CORS origins (`*` ok for local) |
 | `RECENSION_DATABASE_URL` | Postgres DSN |
 | `RECENSION_S3_*` | MinIO/S3 (empty endpoint disables blob APIs) |
 | `RECENSION_API_URL` / `TEAM` / `SUITE` / `VERSION` | SDK / examples |
 
-## API surface (overview)
+## HTTP API
 
-| Method | Path | Auth |
-|--------|------|------|
-| `GET` | `/healthz` | — |
-| `POST` | `/v1/auth/signup`, `/v1/auth/login` | — |
-| `GET` | `/v1/auth/me` | session |
-| `POST` | `/v1/client/verify`, `/v1/client/submit` | API key |
-| `PUT`/`HEAD`/`GET` | `/v1/blobs/{digest}` | API key |
-| `POST` | `/v1/batch/.../seal` | API key |
-| `POST` | `/v1/batch/.../promote` | session |
-| `GET`/`POST` | `/v1/teams`, suites, batches, elements | session |
+Full contract (**23** operations): [`openapi.yaml`](openapi.yaml) (OpenAPI 3.2.0).
+
+- Spec file: [`openapi.yaml`](openapi.yaml)
+- [Open in Swagger Editor](https://editor.swagger.io/?url=https://raw.githubusercontent.com/ayitas/recension/dev/openapi.yaml)
+
+Auth:
+
+| Client | Header |
+|--------|--------|
+| Dashboard | `Authorization: Bearer <session-token>` |
+| SDK | `X-Recension-API-Key: <api-key>` (scoped by the key owner's team memberships) |
+
+Overview:
+
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| `GET` | `/healthz` | — | |
+| `POST` | `/v1/auth/signup`, `/v1/auth/login` | — | |
+| `GET` | `/v1/auth/me` | session | |
+| `POST` | `/v1/auth/api-key/rotate` | session | |
+| `POST` | `/v1/client/verify`, `/v1/client/submit` | API key | submit needs **member+** on team |
+| `PUT`/`HEAD`/`GET` | `/v1/blobs/{digest}` | API key (read also session) | membership required |
+| `POST` | `/v1/batch/{team}/{suite}/{batch}/seal` | API key | **member+** |
+| `POST` | `/v1/batch/{team}/{suite}/{batch}/promote` | session | **admin+** |
+| `GET`/`POST` | `/v1/teams` | session | list = my teams; create → caller is **owner** |
+| `GET`/`POST`/`PATCH`/`DELETE` | `/v1/teams/{team}/members`… | session | viewer list; admin+ manage |
+| `GET`/`POST` | `/v1/teams/{team}/suites`… | session | read viewer+; create **admin+** |
+| `GET` | `/v1/teams/.../batches`, `.../elements/{element}` | session | **viewer+**; element includes metric comparison |
 
 ## SDK (Go)
 
@@ -192,13 +225,37 @@ recension.Configure(
 )
 
 recension.DeclareTestcase("alice")
+recension.StartTimer("find_student")
+// … work under test …
+recension.StopTimer("find_student")
 recension.Check("fullname", "Alice Anderson")
 recension.Check("gpa", 3.9)
+recension.AddMetric("custom_step", 12) // duration ms
 recension.Check("report.pdf", []byte("%PDF…")) // MinIO + digest compare
 outcomes, err := recension.Post()
 ```
 
+Or use the workflow runner (`examples/go/minimal`):
+
+```bash
+export RECENSION_API_KEY=dev-api-key
+export RECENSION_API_URL=http://localhost:8080
+export RECENSION_TEAM=acme
+go run . -revision v1.0
+```
+
 More detail: [`sdk/go/README.md`](sdk/go/README.md).
+
+### Metrics in the dashboard
+
+Element detail (`/t/{team}/{suite}/{batch}/e/{element}`) shows metric overview cards plus **horizontal duration bars** (this revision vs baseline) with `+N ms` / `−N ms` deltas. Raw values are optional via “Show raw values”.
+
+To demo without writing a client:
+
+```bash
+bash scripts/seed-metrics.sh
+# then open the printed /t/acme/students/metrics-cmp-…/e/alice URL
+```
 
 ### Examples
 
@@ -209,7 +266,7 @@ make example-blobs REV=export-b
 make example-blobs REV=export-c BREAK=1
 ```
 
-**Blobs:** MinIO stores bit-identical binaries; compare is digest equality (not semantic PDF/image diff). Each revision is **sealed** after submit — reusing the same `REV` returns 409. Without `REV=…`, the Makefile uses a timestamp.
+**Blobs:** MinIO stores bit-identical binaries; compare is digest equality (not semantic PDF/image diff). Each revision is **sealed** after submit — reusing the same `REV` returns 409. Without `REV=…`, the Makefile uses a timestamp. Bootstrap seeds suite `exports` under `acme`; without bootstrap, create it in the dashboard first.
 
 | Run | Result |
 |-----|--------|
@@ -222,16 +279,28 @@ Suite for blobs demo: `acme/exports`.
 ## Testing
 
 ```bash
-make test                 # pkg + sdk unit tests
+make test                 # pkg + sdk + api unit tests
 make check                # svelte-check
 make smoke                # smoke-hardening + smoke-blobs
-make smoke-hardening      # production defaults, auth, etc.
+make smoke-hardening      # production defaults, auth, tenant isolation
 make smoke-blobs          # blob/MinIO path
 ```
 
 ## Hardening notes
 
-Single-tenant by design today: any valid API key can submit to existing teams/suites, and any logged-in user can read/promote. For shared deployments:
+Multi-tenant RBAC: users access teams only via membership (`owner` | `admin` | `member` | `viewer`).
+API keys are per-user and inherit that user's team roles. Cross-team access returns 404.
+
+| Role | Capabilities |
+|------|----------------|
+| viewer | Read teams/suites/batches/elements; download blobs |
+| member | + SDK submit/seal to existing suites |
+| admin | + create suites, promote baseline, manage members |
+| owner | + grant/revoke owner; creating a team makes you owner |
+
+Bootstrap user is owner of seeded team `acme`. Signup creates a user with no teams until invited or they create one. Invite and change roles from **Team → Members** in the dashboard (`/t/{team}/members`).
+
+For shared deployments:
 
 ```bash
 RECENSION_ENV=production

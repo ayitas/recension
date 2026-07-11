@@ -23,7 +23,9 @@ func findStudent(username string) student {
 
 func main() {
 	recension.Workflow("students", func(username string) {
+		recension.StartTimer("find_student")
 		s := findStudent(username)
+		recension.StopTimer("find_student")
 		recension.Assume("username", s.Username)
 		recension.Check("fullname", s.FullName)
 		recension.Check("gpa", s.GPA)

@@ -52,10 +52,13 @@ func main() {
 
 	recension.Workflow("exports", func(name string) {
 		recension.Assume("name", name)
-		recension.Check("export.bin", recension.BlobFile{
+		recension.StartTimer("export_artifact")
+		blob := recension.BlobFile{
 			Data: exportArtifact(name, *breakExport),
 			Mime: "application/octet-stream",
-		})
+		}
+		recension.StopTimer("export_artifact")
+		recension.Check("export.bin", blob)
 	}, recension.WithTestcases([]string{"invoice", "receipt"}))
 
 	os.Exit(recension.Run())

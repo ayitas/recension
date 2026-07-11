@@ -1,4 +1,4 @@
--- Recension schema v1
+-- Recension schema (idempotent; versions tracked in schema_migrations)
 
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version TEXT PRIMARY KEY,
@@ -19,6 +19,17 @@ CREATE TABLE IF NOT EXISTS teams (
     name TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Multi-tenant membership: users access teams only via this table.
+CREATE TABLE IF NOT EXISTS team_members (
+    team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'member', 'viewer')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (team_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS team_members_user_idx ON team_members (user_id);
 
 CREATE TABLE IF NOT EXISTS suites (
     id UUID PRIMARY KEY,

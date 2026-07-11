@@ -9,6 +9,7 @@ import (
 
 	"github.com/ayitas/recension/api/internal/auth"
 	"github.com/ayitas/recension/api/internal/blobstore"
+	"github.com/ayitas/recension/api/internal/store"
 )
 
 func (s *Server) requireBlobs(w http.ResponseWriter) bool {
@@ -20,8 +21,12 @@ func (s *Server) requireBlobs(w http.ResponseWriter) bool {
 }
 
 func (s *Server) handlePutBlob(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.authenticateClient(r); !ok {
+	user, ok := s.authenticateClient(r)
+	if !ok {
 		writeErr(w, http.StatusUnauthorized, "invalid api key")
+		return
+	}
+	if !s.authorizeAnyTeamRole(w, user, store.RoleMember) {
 		return
 	}
 	if !s.requireBlobs(w) {
@@ -112,8 +117,8 @@ func (s *Server) handleGetBlob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) authorizeBlobRead(w http.ResponseWriter, r *http.Request) bool {
-	if _, ok := s.authenticateClient(r); ok {
-		return true
+	if user, ok := s.authenticateClient(r); ok {
+		return s.authorizeAnyTeamRole(w, user, store.RoleViewer)
 	}
 	tok, err := auth.BearerToken(r.Header.Get("Authorization"))
 	if err != nil {
@@ -125,9 +130,10 @@ func (s *Server) authorizeBlobRead(w http.ResponseWriter, r *http.Request) bool 
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return false
 	}
-	if _, ok := s.store.UserByID(claims.UserID); !ok {
+	user, ok := s.store.UserByID(claims.UserID)
+	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return false
 	}
-	return true
+	return s.authorizeAnyTeamRole(w, user, store.RoleViewer)
 }

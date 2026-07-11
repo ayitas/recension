@@ -80,11 +80,11 @@
 			{error}. If you are not signed in, <a href="/login">log in</a>.
 		</p>
 	{:else if teams.length === 0 && !loading}
-		<p class="empty">No teams yet. Create one to get started.</p>
+		<p class="empty muted">No teams yet. Create one to get started.</p>
 	{:else}
-		<ul>
-			{#each teams as team}
-				<li>
+		<ul class="list-card teams">
+			{#each teams as team, i}
+				<li style={`--i: ${i}`}>
 					<a href={`/t/${team.slug}`}>{team.name}</a>
 					<span class="muted">/{team.slug}</span>
 				</li>
@@ -116,11 +116,11 @@
 
 <style>
 	.hero {
-		margin-bottom: 2.5rem;
+		margin-bottom: 2.75rem;
 	}
 
 	.eyebrow {
-		margin: 0 0 0.75rem;
+		margin: 0 0 0.85rem;
 		text-transform: uppercase;
 		letter-spacing: 0.14em;
 		font-size: 0.72rem;
@@ -130,24 +130,17 @@
 	h1 {
 		margin: 0;
 		max-width: 14ch;
-		font-size: clamp(2.4rem, 7vw, 4.2rem);
-		line-height: 0.95;
+		font-size: clamp(2.4rem, 7vw, 4.1rem);
+		line-height: 0.96;
 		letter-spacing: -0.05em;
 	}
 
 	.lead {
 		max-width: 38rem;
-		margin: 1.25rem 0 0;
+		margin: 1.35rem 0 0;
 		color: var(--muted);
-		font-size: 1.1rem;
+		font-size: 1.12rem;
 		line-height: 1.55;
-	}
-
-	.panel {
-		background: var(--card);
-		border: 1px solid var(--line);
-		box-shadow: var(--shadow);
-		padding: 1.25rem 1.5rem;
 	}
 
 	.panel-head {
@@ -160,47 +153,29 @@
 	h2 {
 		margin: 0;
 		font-size: 1.1rem;
+		letter-spacing: -0.02em;
 	}
 
 	h3 {
-		margin: 0 0 0.75rem;
+		margin: 0 0 0.85rem;
 		font-size: 0.95rem;
 	}
 
-	ul {
-		list-style: none;
-		margin: 0;
-		padding: 0;
+	.teams {
+		margin-bottom: 0.25rem;
 	}
 
-	li {
-		display: flex;
-		gap: 0.75rem;
-		align-items: baseline;
-		padding: 0.85rem 0;
-		border-top: 1px solid var(--line);
-	}
-
-	li a {
-		font-size: 1.2rem;
+	.teams > li {
+		animation: rise 420ms var(--ease) both;
+		animation-delay: calc(var(--i) * 45ms);
 	}
 
 	.empty {
-		color: var(--muted);
 		margin: 0 0 0.5rem;
 	}
 
-	.muted {
-		color: var(--muted);
-	}
-
-	.error {
-		color: var(--diff);
-		line-height: 1.5;
-	}
-
 	.create {
-		margin-top: 1.25rem;
+		margin-top: 1.4rem;
 		padding-top: 1.25rem;
 		border-top: 1px solid var(--line);
 	}
@@ -208,31 +183,7 @@
 	.fields {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-		gap: 0.75rem;
-		margin-bottom: 0.85rem;
-	}
-
-	label {
-		display: grid;
-		gap: 0.3rem;
-		font-size: 0.85rem;
-	}
-
-	input {
-		border: 1px solid var(--line);
-		padding: 0.55rem 0.65rem;
-		background: #fff;
-	}
-
-	button {
-		border: 1px solid var(--accent);
-		background: var(--accent-soft);
-		color: var(--accent);
-		padding: 0.55rem 0.85rem;
-		cursor: pointer;
-	}
-
-	button:disabled {
-		opacity: 0.6;
+		gap: 0.85rem;
+		margin-bottom: 0.95rem;
 	}
 </style>

@@ -98,14 +98,7 @@ func lookupSuite(st store.Store, teamSlug, suiteSlug string) (*store.Suite, erro
 			return &suites[i], nil
 		}
 	}
-	teamFound := false
-	for _, t := range st.ListTeams() {
-		if t.Slug == teamSlug {
-			teamFound = true
-			break
-		}
-	}
-	if !teamFound {
+	if _, ok := st.TeamBySlug(teamSlug); !ok {
 		return nil, fmt.Errorf("team %q not found; create it in the dashboard first", teamSlug)
 	}
 	return nil, fmt.Errorf("suite %q not found; create it in the dashboard first", suiteSlug)

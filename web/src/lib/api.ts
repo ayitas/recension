@@ -20,7 +20,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 	}
 	if (!res.ok) {
 		const text = await res.text();
-		throw new Error(text || res.statusText);
+		throw new Error(formatApiError(text, res.statusText));
 	}
 	if (res.status === 204) {
 		return undefined as T;
@@ -29,6 +29,9 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export type Team = { id: string; slug: string; name: string };
+export type TeamRole = 'owner' | 'admin' | 'member' | 'viewer';
+export type TeamMember = { userId: string; email: string; role: TeamRole };
+
 export type Suite = {
 	id: string;
 	teamId: string;
@@ -155,6 +158,33 @@ export const createSuite = (team: string, name: string, slug: string) =>
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ name, slug })
 	});
+
+export const listMembers = (team: string) => api<TeamMember[]>(`/v1/teams/${team}/members`);
+export const addMember = (team: string, email: string, role: TeamRole) =>
+	api<TeamMember>(`/v1/teams/${team}/members`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ email, role })
+	});
+export const updateMemberRole = (team: string, userId: string, role: TeamRole) =>
+	api<TeamMember>(`/v1/teams/${team}/members/${userId}`, {
+		method: 'PATCH',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ role })
+	});
+export const removeMember = (team: string, userId: string) =>
+	api<void>(`/v1/teams/${team}/members/${userId}`, { method: 'DELETE' });
+
+export const ROLE_RANK: Record<TeamRole, number> = {
+	viewer: 1,
+	member: 2,
+	admin: 3,
+	owner: 4
+};
+
+export function roleAtLeast(have: TeamRole | undefined, need: TeamRole): boolean {
+	return !!have && ROLE_RANK[have] >= ROLE_RANK[need];
+}
 export const listBatches = (team: string, suite: string) =>
 	api<Batch[]>(`/v1/teams/${team}/suites/${suite}/batches`);
 export const getBatch = (team: string, suite: string, batch: string) =>
@@ -205,4 +235,18 @@ export function slugify(input: string): string {
 		.replace(/[^a-z0-9-]/g, '')
 		.replace(/-+/g, '-')
 		.replace(/^-|-$/g, '');
+}
+
+function formatApiError(text: string, fallback: string): string {
+	if (!text) return fallback;
+	try {
+		const parsed = JSON.parse(text) as { errors?: string[]; error?: string };
+		if (Array.isArray(parsed.errors) && parsed.errors.length > 0) {
+			return parsed.errors.join('; ');
+		}
+		if (parsed.error) return parsed.error;
+	} catch {
+		/* raw text */
+	}
+	return text;
 }

@@ -69,7 +69,7 @@
 				{rotating ? 'Rotating…' : 'Rotate API key'}
 			</button>
 		</div>
-		<p class="muted">
+		<p class="muted note">
 			Use this key with the Go SDK via <code>RECENSION_API_KEY</code> or
 			<code>-api-key</code>.
 		</p>
@@ -85,73 +85,60 @@
 {/if}
 
 <style>
-	.crumb {
-		color: var(--muted);
-		margin: 0 0 0.5rem;
-	}
 	h1 {
-		margin: 0 0 1.25rem;
+		margin: 0 0 1.35rem;
 		letter-spacing: -0.04em;
+		font-size: clamp(1.9rem, 4vw, 2.6rem);
 	}
+
 	.panel {
-		background: var(--card);
-		border: 1px solid var(--line);
-		box-shadow: var(--shadow);
-		padding: 1.25rem 1.4rem;
 		max-width: 40rem;
 	}
+
 	.later {
-		margin-top: 1.25rem;
+		margin-top: 1.35rem;
 		max-width: 44rem;
 	}
+
 	.later h2 {
 		margin: 0 0 0.35rem;
 		font-size: 1.05rem;
+		letter-spacing: -0.02em;
 	}
+
 	.intro {
-		margin-bottom: 0.75rem;
+		margin-bottom: 0.85rem;
 	}
+
 	.row {
 		display: grid;
 		gap: 0.35rem;
 		margin-bottom: 1rem;
 	}
+
 	.label {
 		font-size: 0.72rem;
 		text-transform: uppercase;
 		letter-spacing: 0.08em;
 		color: var(--muted);
 	}
+
 	code {
 		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 		font-size: 0.9rem;
 		word-break: break-all;
 	}
+
 	.actions {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.75rem;
 		margin-bottom: 1rem;
 	}
-	button {
-		border: 1px solid var(--accent);
-		background: var(--accent-soft);
-		color: var(--accent);
-		padding: 0.55rem 0.85rem;
-		cursor: pointer;
-	}
-	button.danger {
-		border-color: var(--diff);
-		background: rgba(154, 52, 18, 0.08);
-		color: var(--diff);
-	}
-	.muted {
-		color: var(--muted);
+
+	.note {
 		margin: 0;
 		font-size: 0.92rem;
 		line-height: 1.45;
-	}
-	.error {
-		color: var(--diff);
 	}
 </style>

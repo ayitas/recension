@@ -46,8 +46,9 @@
 	.setup {
 		background: var(--card);
 		border: 1px solid var(--line);
-		box-shadow: var(--shadow);
-		padding: 1.1rem 1.25rem;
+		box-shadow: var(--shadow-soft);
+		border-radius: calc(var(--radius) + 0.15rem);
+		padding: 1.15rem 1.3rem;
 		margin-top: 1rem;
 	}
 	.head {
@@ -55,34 +56,28 @@
 		justify-content: space-between;
 		align-items: center;
 		gap: 1rem;
-		margin-bottom: 0.4rem;
+		margin-bottom: 0.45rem;
 	}
 	h3 {
 		margin: 0;
 		font-size: 1rem;
 		letter-spacing: -0.02em;
 	}
-	button {
-		border: 1px solid var(--accent);
-		background: var(--accent-soft);
-		color: var(--accent);
-		padding: 0.4rem 0.7rem;
-		cursor: pointer;
-	}
 	.muted {
 		color: var(--muted);
-		margin: 0 0 0.85rem;
+		margin: 0 0 0.9rem;
 		font-size: 0.92rem;
 		line-height: 1.45;
 	}
 	pre {
 		margin: 0;
-		padding: 0.9rem 1rem;
+		padding: 0.95rem 1.05rem;
 		background: #1c1915;
 		color: #f3efe6;
 		overflow-x: auto;
 		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 		font-size: 0.82rem;
 		line-height: 1.5;
+		border-radius: var(--radius);
 	}
 </style>

@@ -63,10 +63,10 @@
 {#if error}
 	<p class="error">{error}</p>
 {:else if batches.length === 0}
-	<p class="muted">No batches yet. Submit your first revision to establish a baseline.</p>
+	<p class="muted lead">No batches yet. Submit your first revision to establish a baseline.</p>
 	<SdkSnippet {team} {suite} {apiKey} />
 {:else}
-	<ul>
+	<ul class="list-card">
 		{#each batches as batch}
 			<li>
 				<div class="main">
@@ -78,7 +78,7 @@
 						{scoreLine(batch)}
 					</span>
 				</div>
-				<span class="muted">
+				<span class="muted when">
 					{new Date(batch.submittedAt).toLocaleString()}
 					{#if batch.sealedAt}· sealed{/if}
 				</span>
@@ -92,33 +92,16 @@
 {/if}
 
 <style>
-	.crumb {
-		color: var(--muted);
-		margin: 0 0 0.5rem;
-	}
 	h1 {
 		margin: 0 0 1.5rem;
 		letter-spacing: -0.04em;
+		font-size: clamp(1.9rem, 4vw, 2.6rem);
 	}
-	ul {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-		background: var(--card);
-		border: 1px solid var(--line);
-		box-shadow: var(--shadow);
+
+	.lead {
+		margin: 0 0 0.5rem;
 	}
-	li {
-		display: flex;
-		justify-content: space-between;
-		gap: 1rem;
-		padding: 1rem 1.25rem;
-		border-top: 1px solid var(--line);
-		align-items: baseline;
-	}
-	li:first-child {
-		border-top: 0;
-	}
+
 	.main {
 		display: flex;
 		flex-wrap: wrap;
@@ -126,32 +109,53 @@
 		gap: 0.55rem 0.85rem;
 		min-width: 0;
 	}
+
 	.baseline {
-		font-size: 0.7rem;
+		font-size: 0.68rem;
 		text-transform: uppercase;
 		letter-spacing: 0.08em;
 		color: var(--sent);
+		border: 1px solid color-mix(in srgb, var(--sent) 30%, transparent);
+		border-radius: 999px;
+		padding: 0.12rem 0.45rem;
 	}
+
 	.scores {
 		color: var(--muted);
 		font-size: 0.88rem;
 	}
+
 	.scores.has-diff {
 		color: var(--diff);
 	}
-	.muted {
-		color: var(--muted);
+
+	.when {
 		flex-shrink: 0;
+		font-size: 0.88rem;
 	}
-	.error {
-		color: var(--diff);
-	}
+
 	.more {
-		margin-top: 1.25rem;
+		margin-top: 1.35rem;
 	}
+
 	.more summary {
 		cursor: pointer;
 		color: var(--accent);
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.65rem;
+		list-style: none;
+	}
+
+	.more summary::-webkit-details-marker {
+		display: none;
+	}
+
+	.more summary::before {
+		content: '▸ ';
+		display: inline-block;
+		transition: transform 160ms var(--ease);
+	}
+
+	.more[open] summary::before {
+		transform: rotate(90deg);
 	}
 </style>

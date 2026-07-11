@@ -60,11 +60,13 @@ func (p *Postgres) migrate(ctx context.Context) error {
 	if _, err := tx.Exec(ctx, string(sqlBytes)); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO schema_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING`,
-		"001_init",
-	); err != nil {
-		return err
+	for _, version := range []string{"001_init", "002_tenancy"} {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO schema_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING`,
+			version,
+		); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }
@@ -74,21 +76,21 @@ func (p *Postgres) bootstrap(ctx context.Context, apiKey, passwordHash string) e
 		return nil
 	}
 
-	var exists bool
-	err := p.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)`,
-		"dev@recension.local").Scan(&exists)
+	var userID string
+	err := p.pool.QueryRow(ctx, `SELECT id::text FROM users WHERE email = $1`,
+		"dev@recension.local").Scan(&userID)
 	if err != nil {
-		return err
-	}
-	if !exists {
+		userID = uuid.NewString()
 		_, err = p.pool.Exec(ctx,
 			`INSERT INTO users (id, email, api_key, password_hash) VALUES ($1, $2, $3, $4)
 			 ON CONFLICT (email) DO NOTHING`,
-			uuid.NewString(), "dev@recension.local", apiKey, passwordHash,
+			userID, "dev@recension.local", apiKey, passwordHash,
 		)
 		if err != nil {
 			return err
 		}
+		_ = p.pool.QueryRow(ctx, `SELECT id::text FROM users WHERE email = $1`,
+			"dev@recension.local").Scan(&userID)
 	}
 
 	var teamID string
@@ -106,60 +108,40 @@ func (p *Postgres) bootstrap(ctx context.Context, apiKey, passwordHash string) e
 		_ = p.pool.QueryRow(ctx, `SELECT id::text FROM teams WHERE slug = 'acme'`).Scan(&teamID)
 	}
 
-	var suiteExists bool
-	err = p.pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM suites WHERE team_id = $1::uuid AND slug = 'students')`,
-		teamID,
-	).Scan(&suiteExists)
-	if err != nil {
-		return err
-	}
-	if !suiteExists {
-		_, err = p.pool.Exec(ctx,
-			`INSERT INTO suites (id, team_id, slug, name) VALUES ($1, $2::uuid, 'students', 'Students')
-			 ON CONFLICT (team_id, slug) DO NOTHING`,
-			uuid.NewString(), teamID,
+	if userID != "" && teamID != "" {
+		_, err = p.pool.Exec(ctx, `
+			INSERT INTO team_members (team_id, user_id, role)
+			VALUES ($1::uuid, $2::uuid, $3)
+			ON CONFLICT (team_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
+			teamID, userID, RoleOwner,
 		)
 		if err != nil {
 			return err
 		}
 	}
 
-	var artifactsExists bool
-	err = p.pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM suites WHERE team_id = $1::uuid AND slug = 'artifacts')`,
-		teamID,
-	).Scan(&artifactsExists)
-	if err != nil {
-		return err
-	}
-	if !artifactsExists {
-		_, err = p.pool.Exec(ctx,
-			`INSERT INTO suites (id, team_id, slug, name) VALUES ($1, $2::uuid, 'artifacts', 'Artifacts')
-			 ON CONFLICT (team_id, slug) DO NOTHING`,
-			uuid.NewString(), teamID,
-		)
+	for _, suite := range []struct{ slug, name string }{
+		{"students", "Students"},
+		{"artifacts", "Artifacts"},
+		{"exports", "Exports"},
+	} {
+		var suiteExists bool
+		err = p.pool.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM suites WHERE team_id = $1::uuid AND slug = $2)`,
+			teamID, suite.slug,
+		).Scan(&suiteExists)
 		if err != nil {
 			return err
 		}
-	}
-
-	var exportsExists bool
-	err = p.pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM suites WHERE team_id = $1::uuid AND slug = 'exports')`,
-		teamID,
-	).Scan(&exportsExists)
-	if err != nil {
-		return err
-	}
-	if !exportsExists {
-		_, err = p.pool.Exec(ctx,
-			`INSERT INTO suites (id, team_id, slug, name) VALUES ($1, $2::uuid, 'exports', 'Exports')
-			 ON CONFLICT (team_id, slug) DO NOTHING`,
-			uuid.NewString(), teamID,
-		)
-		if err != nil {
-			return err
+		if !suiteExists {
+			_, err = p.pool.Exec(ctx,
+				`INSERT INTO suites (id, team_id, slug, name) VALUES ($1, $2::uuid, $3, $4)
+				 ON CONFLICT (team_id, slug) DO NOTHING`,
+				uuid.NewString(), teamID, suite.slug, suite.name,
+			)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -249,9 +231,26 @@ func (p *Postgres) RotateAPIKey(userID, newKey string) (*User, error) {
 	return &u, nil
 }
 
-func (p *Postgres) ListTeams() []Team {
+func (p *Postgres) TeamBySlug(slug string) (*Team, bool) {
 	ctx := context.Background()
-	rows, err := p.pool.Query(ctx, `SELECT id::text, slug, name FROM teams ORDER BY slug`)
+	var t Team
+	err := p.pool.QueryRow(ctx,
+		`SELECT id::text, slug, name FROM teams WHERE slug = $1`, slug,
+	).Scan(&t.ID, &t.Slug, &t.Name)
+	if err != nil {
+		return nil, false
+	}
+	return &t, true
+}
+
+func (p *Postgres) ListTeamsForUser(userID string) []Team {
+	ctx := context.Background()
+	rows, err := p.pool.Query(ctx, `
+		SELECT t.id::text, t.slug, t.name
+		FROM teams t
+		JOIN team_members m ON m.team_id = t.id
+		WHERE m.user_id = $1::uuid
+		ORDER BY t.slug`, userID)
 	if err != nil {
 		return nil
 	}
@@ -284,6 +283,111 @@ func (p *Postgres) EnsureTeam(slug, name string) *Team {
 			Scan(&t.ID, &t.Slug, &t.Name)
 	}
 	return &t
+}
+
+func (p *Postgres) Membership(userID, teamSlug string) (string, bool) {
+	ctx := context.Background()
+	var role string
+	err := p.pool.QueryRow(ctx, `
+		SELECT m.role FROM team_members m
+		JOIN teams t ON t.id = m.team_id
+		WHERE m.user_id = $1::uuid AND t.slug = $2`, userID, teamSlug,
+	).Scan(&role)
+	if err != nil {
+		return "", false
+	}
+	return role, true
+}
+
+func (p *Postgres) AddMember(teamID, userID, role string) error {
+	if !ValidRole(role) {
+		return fmt.Errorf("invalid role %q", role)
+	}
+	ctx := context.Background()
+	_, err := p.pool.Exec(ctx, `
+		INSERT INTO team_members (team_id, user_id, role)
+		VALUES ($1::uuid, $2::uuid, $3)
+		ON CONFLICT (team_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
+		teamID, userID, role,
+	)
+	return err
+}
+
+func (p *Postgres) CountOwners(teamID string) int {
+	ctx := context.Background()
+	var n int
+	_ = p.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM team_members WHERE team_id = $1::uuid AND role = $2`,
+		teamID, RoleOwner,
+	).Scan(&n)
+	return n
+}
+
+func (p *Postgres) RemoveMember(teamID, userID string) error {
+	ctx := context.Background()
+	var role string
+	err := p.pool.QueryRow(ctx,
+		`SELECT role FROM team_members WHERE team_id = $1::uuid AND user_id = $2::uuid`,
+		teamID, userID,
+	).Scan(&role)
+	if err != nil {
+		return ErrNotMember
+	}
+	if role == RoleOwner && p.CountOwners(teamID) <= 1 {
+		return ErrLastOwner
+	}
+	_, err = p.pool.Exec(ctx,
+		`DELETE FROM team_members WHERE team_id = $1::uuid AND user_id = $2::uuid`,
+		teamID, userID,
+	)
+	return err
+}
+
+func (p *Postgres) SetMemberRole(teamID, userID, role string) error {
+	if !ValidRole(role) {
+		return fmt.Errorf("invalid role %q", role)
+	}
+	ctx := context.Background()
+	var current string
+	err := p.pool.QueryRow(ctx,
+		`SELECT role FROM team_members WHERE team_id = $1::uuid AND user_id = $2::uuid`,
+		teamID, userID,
+	).Scan(&current)
+	if err != nil {
+		return ErrNotMember
+	}
+	if current == RoleOwner && role != RoleOwner && p.CountOwners(teamID) <= 1 {
+		return ErrLastOwner
+	}
+	_, err = p.pool.Exec(ctx,
+		`UPDATE team_members SET role = $1 WHERE team_id = $2::uuid AND user_id = $3::uuid`,
+		role, teamID, userID,
+	)
+	return err
+}
+
+func (p *Postgres) ListMembers(teamSlug string) ([]TeamMember, error) {
+	ctx := context.Background()
+	rows, err := p.pool.Query(ctx, `
+		SELECT u.id::text, u.email, m.role
+		FROM team_members m
+		JOIN teams t ON t.id = m.team_id
+		JOIN users u ON u.id = m.user_id
+		WHERE t.slug = $1
+		ORDER BY m.role DESC, u.email`, teamSlug)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []TeamMember{}
+	for rows.Next() {
+		var m TeamMember
+		if err := rows.Scan(&m.UserID, &m.Email, &m.Role); err != nil {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out, nil
 }
 
 func (p *Postgres) EnsureSuite(teamSlug, suiteSlug, name string) (*Suite, error) {

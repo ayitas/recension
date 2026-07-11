@@ -17,6 +17,7 @@ type Memory struct {
 	users       map[string]*User
 	usersByID   map[string]*User
 	teams       map[string]*Team
+	members     map[string]string // "teamID|userID" -> role
 	suites      map[string]*Suite
 	batches     map[string]*Batch
 	elements    map[string]*Element
@@ -25,11 +26,16 @@ type Memory struct {
 	comparisons map[string]*ComparisonRecord
 }
 
+func memberKey(teamID, userID string) string {
+	return teamID + "|" + userID
+}
+
 func NewMemory(bootstrapAPIKey, bootstrapPasswordHash string) *Memory {
 	m := &Memory{
 		users:       map[string]*User{},
 		usersByID:   map[string]*User{},
 		teams:       map[string]*Team{},
+		members:     map[string]string{},
 		suites:      map[string]*Suite{},
 		batches:     map[string]*Batch{},
 		elements:    map[string]*Element{},
@@ -48,6 +54,7 @@ func NewMemory(bootstrapAPIKey, bootstrapPasswordHash string) *Memory {
 
 	team := &Team{ID: uuid.NewString(), Slug: "acme", Name: "Acme"}
 	m.teams[team.Slug] = team
+	m.members[memberKey(team.ID, u.ID)] = RoleOwner
 	suite := &Suite{ID: uuid.NewString(), TeamID: team.ID, Slug: "students", Name: "Students"}
 	m.suites[team.Slug+"/"+suite.Slug] = suite
 	artifacts := &Suite{ID: uuid.NewString(), TeamID: team.ID, Slug: "artifacts", Name: "Artifacts"}
@@ -114,12 +121,25 @@ func (m *Memory) RotateAPIKey(userID, newKey string) (*User, error) {
 	return u, nil
 }
 
-func (m *Memory) ListTeams() []Team {
+func (m *Memory) TeamBySlug(slug string) (*Team, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	out := make([]Team, 0, len(m.teams))
+	t, ok := m.teams[slug]
+	if !ok {
+		return nil, false
+	}
+	cp := *t
+	return &cp, true
+}
+
+func (m *Memory) ListTeamsForUser(userID string) []Team {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := []Team{}
 	for _, t := range m.teams {
-		out = append(out, *t)
+		if _, ok := m.members[memberKey(t.ID, userID)]; ok {
+			out = append(out, *t)
+		}
 	}
 	return out
 }
@@ -136,6 +156,127 @@ func (m *Memory) EnsureTeam(slug, name string) *Team {
 	t := &Team{ID: uuid.NewString(), Slug: slug, Name: name}
 	m.teams[slug] = t
 	return t
+}
+
+func (m *Memory) Membership(userID, teamSlug string) (string, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	team, ok := m.teams[teamSlug]
+	if !ok {
+		return "", false
+	}
+	role, ok := m.members[memberKey(team.ID, userID)]
+	return role, ok
+}
+
+func (m *Memory) AddMember(teamID, userID, role string) error {
+	if !ValidRole(role) {
+		return fmt.Errorf("invalid role %q", role)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.usersByID[userID]; !ok {
+		return fmt.Errorf("user not found")
+	}
+	found := false
+	for _, t := range m.teams {
+		if t.ID == teamID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("team not found")
+	}
+	m.members[memberKey(teamID, userID)] = role
+	return nil
+}
+
+func (m *Memory) CountOwners(teamID string) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	n := 0
+	prefix := teamID + "|"
+	for k, role := range m.members {
+		if strings.HasPrefix(k, prefix) && role == RoleOwner {
+			n++
+		}
+	}
+	return n
+}
+
+func (m *Memory) RemoveMember(teamID, userID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := memberKey(teamID, userID)
+	role, ok := m.members[key]
+	if !ok {
+		return ErrNotMember
+	}
+	if role == RoleOwner {
+		n := 0
+		prefix := teamID + "|"
+		for k, r := range m.members {
+			if strings.HasPrefix(k, prefix) && r == RoleOwner {
+				n++
+			}
+		}
+		if n <= 1 {
+			return ErrLastOwner
+		}
+	}
+	delete(m.members, key)
+	return nil
+}
+
+func (m *Memory) SetMemberRole(teamID, userID, role string) error {
+	if !ValidRole(role) {
+		return fmt.Errorf("invalid role %q", role)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := memberKey(teamID, userID)
+	current, ok := m.members[key]
+	if !ok {
+		return ErrNotMember
+	}
+	if current == RoleOwner && role != RoleOwner {
+		n := 0
+		prefix := teamID + "|"
+		for k, r := range m.members {
+			if strings.HasPrefix(k, prefix) && r == RoleOwner {
+				n++
+			}
+		}
+		if n <= 1 {
+			return ErrLastOwner
+		}
+	}
+	m.members[key] = role
+	return nil
+}
+
+func (m *Memory) ListMembers(teamSlug string) ([]TeamMember, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	team, ok := m.teams[teamSlug]
+	if !ok {
+		return nil, fmt.Errorf("team not found")
+	}
+	out := []TeamMember{}
+	prefix := team.ID + "|"
+	for k, role := range m.members {
+		if !strings.HasPrefix(k, prefix) {
+			continue
+		}
+		userID := strings.TrimPrefix(k, prefix)
+		u, ok := m.usersByID[userID]
+		if !ok {
+			continue
+		}
+		out = append(out, TeamMember{UserID: u.ID, Email: u.Email, Role: role})
+	}
+	return out, nil
 }
 
 func (m *Memory) EnsureSuite(teamSlug, suiteSlug, name string) (*Suite, error) {

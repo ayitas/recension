@@ -70,20 +70,13 @@
 	code {
 		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 		font-size: 0.8rem;
-		padding: 0.15rem 0.35rem;
+		padding: 0.2rem 0.4rem;
 		background: rgba(28, 25, 21, 0.06);
+		border-radius: 0.3rem;
 	}
 	button {
-		border: 1px solid var(--line);
-		background: var(--card);
-		color: var(--accent);
-		padding: 0.2rem 0.5rem;
+		padding: 0.25rem 0.55rem;
 		font-size: 0.75rem;
-		cursor: pointer;
-	}
-	button:disabled {
-		opacity: 0.6;
-		cursor: wait;
 	}
 	.err {
 		margin: 0.35rem 0 0;

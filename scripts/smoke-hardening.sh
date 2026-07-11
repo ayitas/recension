@@ -151,9 +151,18 @@ TOKEN="$(curl -sS -X POST "$BASE/v1/auth/login" \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')"
 
 SMOKE_EMAIL="smoke-$(date +%s)@recension.local"
-expect_status "signup allowed" 200 POST "$BASE/v1/auth/signup" \
+SMOKE_SIGNUP="$(curl -sS -w '\n%{http_code}' -X POST "$BASE/v1/auth/signup" \
   -H 'Content-Type: application/json' \
-  -d "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"password1\"}"
+  -d "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"password1\"}")"
+SMOKE_SIGNUP_BODY="$(printf '%s' "$SMOKE_SIGNUP" | sed '$d')"
+SMOKE_SIGNUP_CODE="$(printf '%s' "$SMOKE_SIGNUP" | tail -n1)"
+if [[ "$SMOKE_SIGNUP_CODE" == "200" ]]; then
+  ok "signup allowed (HTTP 200)"
+else
+  fail "signup allowed (want 200, got $SMOKE_SIGNUP_CODE: $SMOKE_SIGNUP_BODY)"
+fi
+SMOKE_KEY="$(printf '%s' "$SMOKE_SIGNUP_BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["user"]["apiKey"])')"
+SMOKE_TOKEN="$(printf '%s' "$SMOKE_SIGNUP_BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')"
 
 echo "==> submit hardening"
 NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -204,6 +213,28 @@ expect_status "bad api key" 401 POST "$BASE/v1/client/submit" \
 echo "==> dashboard authz still works"
 expect_status "list batches with session" 200 GET "$BASE/v1/teams/$TEAM/suites/$SUITE/batches" \
   -H "Authorization: Bearer $TOKEN"
+
+echo "==> tenant isolation"
+expect_status "outsider cannot list acme suites" 404 GET "$BASE/v1/teams/$TEAM/suites" \
+  -H "Authorization: Bearer $SMOKE_TOKEN"
+
+expect_status "outsider cannot promote" 404 POST "$BASE/v1/batch/$TEAM/$SUITE/$BATCH/promote" \
+  -H "Authorization: Bearer $SMOKE_TOKEN"
+
+expect_status "outsider key cannot submit to acme" 404 POST "$BASE/v1/client/submit" \
+  -H "X-Recension-API-Key: $SMOKE_KEY" -H 'Content-Type: application/json' \
+  -d "$MSG_OK"
+
+expect_status "outsider teams list empty" 200 GET "$BASE/v1/teams" \
+  -H "Authorization: Bearer $SMOKE_TOKEN"
+
+TEAMS_LEN="$(curl -sS "$BASE/v1/teams" -H "Authorization: Bearer $SMOKE_TOKEN" \
+  | python3 -c 'import sys,json; print(len(json.load(sys.stdin)))')"
+if [[ "$TEAMS_LEN" == "0" ]]; then
+  ok "outsider sees zero teams"
+else
+  fail "outsider should see 0 teams, got $TEAMS_LEN"
+fi
 
 echo "==> restart with signup disabled"
 start_api false false

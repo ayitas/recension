@@ -57,24 +57,29 @@
 </script>
 
 <p class="crumb"><a href="/">Teams</a> / {team}</p>
-<h1>{team}</h1>
+<div class="title-row">
+	<h1>{team}</h1>
+	<a class="members-link" href={`/t/${team}/members`}>Members</a>
+</div>
 
 {#if error}
 	<p class="error">{error}</p>
 {:else if suites.length === 0}
-	<p class="muted">No suites yet. A suite maps to one workflow under test.</p>
+	<p class="muted lead">No suites yet. A suite maps to one workflow under test.</p>
 {:else}
-	<ul>
+	<ul class="list-card">
 		{#each suites as suite}
 			<li>
 				<a href={`/t/${team}/${suite.slug}`}>{suite.name}</a>
-				<span class="muted">baseline: {suite.baselineBatchId ? 'set' : 'none'}</span>
+				<span class="muted status">
+					baseline: {suite.baselineBatchId ? 'set' : 'none'}
+				</span>
 			</li>
 		{/each}
 	</ul>
 {/if}
 
-<form class="create" onsubmit={onCreate}>
+<form class="panel create" onsubmit={onCreate}>
 	<h3>New suite</h3>
 	<div class="fields">
 		<label>
@@ -91,73 +96,52 @@
 </form>
 
 <style>
-	.crumb {
-		color: var(--muted);
-		margin: 0 0 0.5rem;
+	.title-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1rem;
+		align-items: baseline;
+		justify-content: space-between;
+		margin-bottom: 1.5rem;
 	}
+
 	h1 {
-		margin: 0 0 1.5rem;
+		margin: 0;
 		letter-spacing: -0.04em;
+		font-size: clamp(1.9rem, 4vw, 2.6rem);
 	}
+
+	.members-link {
+		font-size: 0.92rem;
+		color: var(--accent);
+		border-bottom: 1px solid transparent;
+	}
+
+	.members-link:hover {
+		border-bottom-color: var(--accent);
+	}
+
+	.lead {
+		margin: 0 0 1rem;
+	}
+
+	.status {
+		font-size: 0.88rem;
+	}
+
+	.create {
+		margin-top: 1.35rem;
+	}
+
 	h3 {
-		margin: 0 0 0.75rem;
+		margin: 0 0 0.85rem;
 		font-size: 0.95rem;
 	}
-	ul {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-		background: var(--card);
-		border: 1px solid var(--line);
-		box-shadow: var(--shadow);
-	}
-	li {
-		display: flex;
-		justify-content: space-between;
-		gap: 1rem;
-		padding: 1rem 1.25rem;
-		border-top: 1px solid var(--line);
-	}
-	li:first-child {
-		border-top: 0;
-	}
-	.muted {
-		color: var(--muted);
-	}
-	.error {
-		color: var(--diff);
-	}
-	.create {
-		margin-top: 1.25rem;
-		background: var(--card);
-		border: 1px solid var(--line);
-		box-shadow: var(--shadow);
-		padding: 1.1rem 1.25rem;
-	}
+
 	.fields {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-		gap: 0.75rem;
-		margin-bottom: 0.85rem;
-	}
-	label {
-		display: grid;
-		gap: 0.3rem;
-		font-size: 0.85rem;
-	}
-	input {
-		border: 1px solid var(--line);
-		padding: 0.55rem 0.65rem;
-		background: #fff;
-	}
-	button {
-		border: 1px solid var(--accent);
-		background: var(--accent-soft);
-		color: var(--accent);
-		padding: 0.55rem 0.85rem;
-		cursor: pointer;
-	}
-	button:disabled {
-		opacity: 0.6;
+		gap: 0.85rem;
+		margin-bottom: 0.95rem;
 	}
 </style>

@@ -57,15 +57,19 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("HEAD /v1/blobs/{digest}", s.handleHeadBlob)
 	s.mux.HandleFunc("GET /v1/blobs/{digest}", s.handleGetBlob)
 	s.mux.HandleFunc("POST /v1/batch/{team}/{suite}/{batch}/seal", s.handleBatchSeal)
-	s.mux.HandleFunc("POST /v1/batch/{team}/{suite}/{batch}/promote", s.requireUser(s.handleBatchPromote))
+	s.mux.HandleFunc("POST /v1/batch/{team}/{suite}/{batch}/promote", s.requireUser(s.requireTeamRole(store.RoleAdmin, s.handleBatchPromote)))
 
 	s.mux.HandleFunc("GET /v1/teams", s.requireUser(s.handleListTeams))
 	s.mux.HandleFunc("POST /v1/teams", s.requireUser(s.handleCreateTeam))
-	s.mux.HandleFunc("GET /v1/teams/{team}/suites", s.requireUser(s.handleListSuites))
-	s.mux.HandleFunc("POST /v1/teams/{team}/suites", s.requireUser(s.handleCreateSuite))
-	s.mux.HandleFunc("GET /v1/teams/{team}/suites/{suite}/batches", s.requireUser(s.handleListBatches))
-	s.mux.HandleFunc("GET /v1/teams/{team}/suites/{suite}/batches/{batch}", s.requireUser(s.handleGetBatch))
-	s.mux.HandleFunc("GET /v1/teams/{team}/suites/{suite}/batches/{batch}/elements/{element}", s.requireUser(s.handleGetElement))
+	s.mux.HandleFunc("GET /v1/teams/{team}/members", s.requireUser(s.requireTeamRole(store.RoleViewer, s.handleListMembers)))
+	s.mux.HandleFunc("POST /v1/teams/{team}/members", s.requireUser(s.requireTeamRole(store.RoleAdmin, s.handleAddMember)))
+	s.mux.HandleFunc("PATCH /v1/teams/{team}/members/{userId}", s.requireUser(s.requireTeamRole(store.RoleAdmin, s.handleUpdateMember)))
+	s.mux.HandleFunc("DELETE /v1/teams/{team}/members/{userId}", s.requireUser(s.requireTeamRole(store.RoleAdmin, s.handleRemoveMember)))
+	s.mux.HandleFunc("GET /v1/teams/{team}/suites", s.requireUser(s.requireTeamRole(store.RoleViewer, s.handleListSuites)))
+	s.mux.HandleFunc("POST /v1/teams/{team}/suites", s.requireUser(s.requireTeamRole(store.RoleAdmin, s.handleCreateSuite)))
+	s.mux.HandleFunc("GET /v1/teams/{team}/suites/{suite}/batches", s.requireUser(s.requireTeamRole(store.RoleViewer, s.handleListBatches)))
+	s.mux.HandleFunc("GET /v1/teams/{team}/suites/{suite}/batches/{batch}", s.requireUser(s.requireTeamRole(store.RoleViewer, s.handleGetBatch)))
+	s.mux.HandleFunc("GET /v1/teams/{team}/suites/{suite}/batches/{batch}/elements/{element}", s.requireUser(s.requireTeamRole(store.RoleViewer, s.handleGetElement)))
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -81,7 +85,8 @@ func (s *Server) handleClientVerify(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleClientSubmit(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.authenticateClient(r); !ok {
+	user, ok := s.authenticateClient(r)
+	if !ok {
 		writeErr(w, http.StatusUnauthorized, "invalid api key")
 		return
 	}
@@ -95,6 +100,24 @@ func (s *Server) handleClientSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
+	}
+	teamSlug := ""
+	if len(env.Messages) > 0 {
+		teamSlug = strings.TrimSpace(env.Messages[0].Metadata.Team)
+	}
+	if teamSlug == "" {
+		writeErr(w, http.StatusBadRequest, "message metadata incomplete")
+		return
+	}
+	if !s.authorizeTeamRole(w, user, teamSlug, store.RoleMember) {
+		return
+	}
+	// All messages in one envelope must target the same authorized team.
+	for _, msg := range env.Messages {
+		if strings.TrimSpace(msg.Metadata.Team) != teamSlug {
+			writeErr(w, http.StatusBadRequest, "all messages must target the same team")
+			return
+		}
 	}
 	outcomes, err := submit.Process(s.store, env)
 	if err != nil {
@@ -113,11 +136,15 @@ func (s *Server) handleClientSubmit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBatchSeal(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.authenticateClient(r); !ok {
+	user, ok := s.authenticateClient(r)
+	if !ok {
 		writeErr(w, http.StatusUnauthorized, "invalid api key")
 		return
 	}
 	team := r.PathValue("team")
+	if !s.authorizeTeamRole(w, user, team, store.RoleMember) {
+		return
+	}
 	suite := r.PathValue("suite")
 	batchSlug := r.PathValue("batch")
 	batch, _, ok := s.store.GetBatch(team, suite, batchSlug)
@@ -142,8 +169,13 @@ func (s *Server) handleBatchPromote(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleListTeams(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.store.ListTeams())
+func (s *Server) handleListTeams(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r)
+	if user == nil {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.store.ListTeamsForUser(user.ID))
 }
 
 func (s *Server) handleListSuites(w http.ResponseWriter, r *http.Request) {
@@ -358,16 +390,6 @@ func (s *Server) handleGetElement(w http.ResponseWriter, r *http.Request) {
 func (s *Server) authenticateClient(r *http.Request) (*store.User, bool) {
 	key := r.Header.Get("X-Recension-API-Key")
 	if key == "" {
-		key = r.Header.Get("X-Touca-API-Key")
-	}
-	if key == "" {
-		authz := r.Header.Get("Authorization")
-		if strings.HasPrefix(strings.ToLower(authz), "bearer ") {
-			// Bearer tokens are for dashboard sessions; clients use API key header.
-			return nil, false
-		}
-	}
-	if key == "" {
 		return nil, false
 	}
 	return s.store.UserByAPIKey(key)
@@ -400,7 +422,7 @@ func cors(origins []string, next http.Handler) http.Handler {
 			}
 		}
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Recension-API-Key, X-Recension-Mime")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, HEAD, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getElement, type ElementDetail } from '$lib/api';
 	import DiffTable from '$lib/DiffTable.svelte';
+	import MetricsBars from '$lib/MetricsBars.svelte';
 	import { page } from '$app/stores';
 
 	let detail = $state<ElementDetail | null>(null);
@@ -42,7 +43,7 @@
 		<span class={`verdict ${detail.verdict}`}>{detail.verdict}</span>
 	</div>
 
-	<p class="meta">
+	<p class="meta muted">
 		score {(detail.score ?? 0).toFixed(3)}
 		· comparing
 		<strong>{detail.comparison.src.version}</strong>
@@ -53,16 +54,40 @@
 	<div class="stats">
 		<div>
 			<span class="n">{detail.comparison.overview.keysCountCommon}</span>
-			<span class="l">common</span>
+			<span class="l">checks common</span>
 		</div>
 		<div>
 			<span class="n">{detail.comparison.overview.keysCountFresh}</span>
-			<span class="l">fresh</span>
+			<span class="l">checks fresh</span>
 		</div>
 		<div>
 			<span class="n">{detail.comparison.overview.keysCountMissing}</span>
-			<span class="l">missing</span>
+			<span class="l">checks missing</span>
 		</div>
+	</div>
+
+	<div class="stats metrics-stats">
+		<div>
+			<span class="n">{detail.comparison.overview.metricsCountCommon}</span>
+			<span class="l">metrics common</span>
+		</div>
+		<div>
+			<span class="n">{detail.comparison.overview.metricsCountFresh}</span>
+			<span class="l">metrics fresh</span>
+		</div>
+		<div>
+			<span class="n">{detail.comparison.overview.metricsCountMissing}</span>
+			<span class="l">metrics missing</span>
+		</div>
+		{#if detail.comparison.overview.metricsCountCommon > 0}
+			<div class="duration">
+				<span class="n"
+					>{detail.comparison.overview.metricsDurationCommonSrc}→{detail.comparison.overview
+						.metricsDurationCommonDst}</span
+				>
+				<span class="l">common ms (src→dst)</span>
+			</div>
+		{/if}
 	</div>
 
 	<div class="filters">
@@ -72,7 +97,7 @@
 		</label>
 		<label class="filter">
 			<input type="checkbox" bind:checked={blobsOnly} />
-			Blobs only
+			Blobs only (checks)
 		</label>
 	</div>
 
@@ -92,78 +117,86 @@
 		{changedOnly}
 		{blobsOnly}
 	/>
-	<DiffTable
-		title="Metrics"
+	<MetricsBars
 		cellar={detail.comparison.metrics}
 		srcLabel={detail.comparison.src.version}
 		dstLabel={detail.comparison.dst.version}
 		{changedOnly}
-		{blobsOnly}
 	/>
 {/if}
 
 <style>
-	.crumb {
-		color: var(--muted);
-		margin: 0 0 0.5rem;
-	}
 	.title-row {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 1rem;
 		align-items: baseline;
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.55rem;
 	}
+
 	h1 {
 		margin: 0;
 		letter-spacing: -0.04em;
+		font-size: clamp(1.9rem, 4vw, 2.6rem);
 	}
-	.verdict {
-		text-transform: uppercase;
-		font-size: 0.8rem;
-		letter-spacing: 0.1em;
-	}
-	.verdict.pass {
-		color: var(--pass);
-	}
-	.verdict.diff {
-		color: var(--diff);
-	}
-	.verdict.sent {
-		color: var(--sent);
-	}
+
 	.meta {
-		color: var(--muted);
-		margin: 0 0 1.25rem;
+		margin: 0 0 1.35rem;
 	}
+
 	.stats {
 		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 8rem));
+		grid-template-columns: repeat(3, minmax(0, 8.5rem));
 		gap: 0.75rem;
-		margin-bottom: 1.75rem;
+		margin-bottom: 0.85rem;
 	}
+
+	.metrics-stats {
+		grid-template-columns: repeat(auto-fit, minmax(7.5rem, 8.5rem));
+		margin-bottom: 1.5rem;
+	}
+
 	.stats div {
 		background: var(--card);
 		border: 1px solid var(--line);
-		padding: 0.75rem 0.9rem;
+		border-radius: var(--radius);
+		padding: 0.8rem 0.95rem;
+		box-shadow: var(--shadow-soft);
+		transition:
+			transform 180ms var(--ease),
+			box-shadow 180ms var(--ease);
 	}
+
+	.stats div:hover {
+		transform: translateY(-2px);
+		box-shadow: var(--shadow);
+	}
+
+	.duration .n {
+		font-size: 1.05rem;
+	}
+
 	.n {
 		display: block;
-		font-size: 1.4rem;
+		font-size: 1.45rem;
 		letter-spacing: -0.03em;
+		font-variant-numeric: tabular-nums;
 	}
+
 	.l {
 		color: var(--muted);
-		font-size: 0.75rem;
+		font-size: 0.72rem;
 		text-transform: uppercase;
 		letter-spacing: 0.08em;
 	}
+
 	.filters {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.75rem 1.25rem;
-		margin: 0 0 1.25rem;
+		margin: 0 0 1.35rem;
 	}
+
 	.filter {
 		display: inline-flex;
 		align-items: center;
@@ -173,11 +206,11 @@
 		font-size: 0.9rem;
 		cursor: pointer;
 		user-select: none;
+		width: auto;
 	}
+
 	.filter input {
+		width: auto;
 		accent-color: var(--accent);
-	}
-	.error {
-		color: var(--diff);
 	}
 </style>

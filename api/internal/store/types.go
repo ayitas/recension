@@ -67,8 +67,17 @@ type Store interface {
 	UserByID(id string) (*User, bool)
 	CreateUser(email, passwordHash, apiKey string) (*User, error)
 	RotateAPIKey(userID, newKey string) (*User, error)
-	ListTeams() []Team
+
+	TeamBySlug(slug string) (*Team, bool)
+	ListTeamsForUser(userID string) []Team
 	EnsureTeam(slug, name string) *Team
+	Membership(userID, teamSlug string) (role string, ok bool)
+	AddMember(teamID, userID, role string) error
+	RemoveMember(teamID, userID string) error
+	SetMemberRole(teamID, userID, role string) error
+	ListMembers(teamSlug string) ([]TeamMember, error)
+	CountOwners(teamID string) int
+
 	EnsureSuite(teamSlug, suiteSlug, name string) (*Suite, error)
 	ListSuites(teamSlug string) []Suite
 	EnsureBatch(suite *Suite, slug string) *Batch

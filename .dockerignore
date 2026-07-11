@@ -10,6 +10,6 @@ web/build
 **/*.md
 examples
 sdk
-schema
+openapi.yaml
 ops/compose.yaml
 ops/nginx.conf

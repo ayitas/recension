@@ -27,9 +27,10 @@
 	}
 </script>
 
-<section class="panel">
+<section class="panel auth">
+	<p class="eyebrow">welcome back</p>
 	<h1>Log in</h1>
-	<p class="muted">Sign in with your account.</p>
+	<p class="muted">Sign in to browse teams, suites, and baselines.</p>
 	<form onsubmit={onSubmit}>
 		<label>
 			Email
@@ -45,57 +46,50 @@
 	<p class="muted tip">
 		Local bootstrap: <code>dev@recension.local</code> / <code>dev-password</code>
 	</p>
+	<p class="muted switch">
+		No account? <a href="/signup">Sign up</a>
+	</p>
 </section>
 
 <style>
-	.panel {
+	.auth {
 		max-width: 26rem;
-		background: var(--card);
-		border: 1px solid var(--line);
-		box-shadow: var(--shadow);
-		padding: 1.5rem;
 	}
+
+	.eyebrow {
+		margin: 0 0 0.55rem;
+		text-transform: uppercase;
+		letter-spacing: 0.12em;
+		font-size: 0.7rem;
+		color: var(--accent);
+	}
+
 	h1 {
 		margin: 0 0 0.35rem;
-		letter-spacing: -0.03em;
+		letter-spacing: -0.035em;
 	}
-	.muted {
-		color: var(--muted);
-	}
-	.tip {
-		margin-top: 1.25rem;
-		font-size: 0.9rem;
-	}
+
 	form {
 		display: grid;
-		gap: 0.9rem;
-		margin-top: 1.25rem;
+		gap: 0.95rem;
+		margin-top: 1.35rem;
 	}
-	label {
-		display: grid;
-		gap: 0.35rem;
+
+	.tip {
+		margin-top: 1.35rem;
 		font-size: 0.9rem;
 	}
-	input {
-		border: 1px solid var(--line);
-		padding: 0.6rem 0.7rem;
-		background: #fff;
+
+	.switch {
+		margin: 0.85rem 0 0;
+		font-size: 0.92rem;
 	}
-	button {
-		border: 1px solid var(--accent);
-		background: var(--accent-soft);
+
+	.switch a {
 		color: var(--accent);
-		padding: 0.65rem 0.9rem;
-		cursor: pointer;
+		border-bottom: 1px solid rgba(15, 92, 76, 0.3);
 	}
-	button:disabled {
-		opacity: 0.6;
-	}
-	.error {
-		color: var(--diff);
-		margin: 0;
-		font-size: 0.9rem;
-	}
+
 	code {
 		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 		font-size: 0.85em;
