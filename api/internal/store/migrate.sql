@@ -31,6 +31,20 @@ CREATE TABLE IF NOT EXISTS team_members (
 
 CREATE INDEX IF NOT EXISTS team_members_user_idx ON team_members (user_id);
 
+-- Shareable invite links (anyone with the token can join after login).
+CREATE TABLE IF NOT EXISTS team_invites (
+    id UUID PRIMARY KEY,
+    team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    token TEXT NOT NULL UNIQUE,
+    role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'member', 'viewer')),
+    created_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    accepted_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS team_invites_token_idx ON team_invites (token);
+
 CREATE TABLE IF NOT EXISTS suites (
     id UUID PRIMARY KEY,
     team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,

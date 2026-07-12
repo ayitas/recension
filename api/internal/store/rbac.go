@@ -1,6 +1,9 @@
 package store
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // Team roles (ascending privilege).
 const (
@@ -35,8 +38,22 @@ type TeamMember struct {
 	Role   string `json:"role"`
 }
 
+// TeamInvite is a shareable join link for a team.
+type TeamInvite struct {
+	ID         string     `json:"id"`
+	TeamID     string     `json:"teamId"`
+	Token      string     `json:"token"`
+	Role       string     `json:"role"`
+	CreatedBy  string     `json:"createdBy"`
+	ExpiresAt  time.Time  `json:"expiresAt"`
+	AcceptedAt *time.Time `json:"acceptedAt,omitempty"`
+}
+
 // ErrNotMember is returned when a membership lookup fails.
 var ErrNotMember = fmt.Errorf("not a team member")
 
 // ErrLastOwner prevents removing or demoting the last owner.
 var ErrLastOwner = fmt.Errorf("cannot remove or demote the last owner")
+
+// ErrInviteExpired or already used.
+var ErrInviteExpired = fmt.Errorf("invite expired or already used")

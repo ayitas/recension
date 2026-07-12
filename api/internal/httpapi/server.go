@@ -65,6 +65,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/teams/{team}/members", s.requireUser(s.requireTeamRole(store.RoleAdmin, s.handleAddMember)))
 	s.mux.HandleFunc("PATCH /v1/teams/{team}/members/{userId}", s.requireUser(s.requireTeamRole(store.RoleAdmin, s.handleUpdateMember)))
 	s.mux.HandleFunc("DELETE /v1/teams/{team}/members/{userId}", s.requireUser(s.requireTeamRole(store.RoleAdmin, s.handleRemoveMember)))
+	s.mux.HandleFunc("POST /v1/teams/{team}/invites", s.requireUser(s.requireTeamRole(store.RoleAdmin, s.handleCreateInvite)))
+	s.mux.HandleFunc("GET /v1/invites/{token}", s.handleGetInvite)
+	s.mux.HandleFunc("POST /v1/invites/{token}/accept", s.requireUser(s.handleAcceptInvite))
 	s.mux.HandleFunc("GET /v1/teams/{team}/suites", s.requireUser(s.requireTeamRole(store.RoleViewer, s.handleListSuites)))
 	s.mux.HandleFunc("POST /v1/teams/{team}/suites", s.requireUser(s.requireTeamRole(store.RoleAdmin, s.handleCreateSuite)))
 	s.mux.HandleFunc("GET /v1/teams/{team}/suites/{suite}/batches", s.requireUser(s.requireTeamRole(store.RoleViewer, s.handleListBatches)))
@@ -309,6 +312,7 @@ func (s *Server) handleGetElement(w http.ResponseWriter, r *http.Request) {
 	suiteSlug := r.PathValue("suite")
 	batchSlug := r.PathValue("batch")
 	elementName := r.PathValue("element")
+	vsSlug := strings.TrimSpace(r.URL.Query().Get("vs"))
 
 	batch, suite, ok := s.store.GetBatch(team, suiteSlug, batchSlug)
 	if !ok {
@@ -339,51 +343,82 @@ func (s *Server) handleGetElement(w http.ResponseWriter, r *http.Request) {
 	verdict := "pass"
 	score := 1.0
 	var cmp *compare.Result
+	comparedBatchID := suite.BaselineBatchID
 
-	for _, c := range s.store.ComparisonsForBatch(batch.ID) {
-		if c.SrcMessageID == msg.ID {
-			result := c.Result
+	// Optional compare-to override: recompute against another batch in the same suite.
+	if vsSlug != "" {
+		vsBatch, _, ok := s.store.GetBatch(team, suiteSlug, vsSlug)
+		if !ok {
+			writeErr(w, http.StatusNotFound, "compare-to batch not found")
+			return
+		}
+		comparedBatchID = vsBatch.ID
+		if vsBatch.ID == batch.ID {
+			self := compare.Messages(msg.Payload, msg.Payload)
+			cmp = &self
+			verdict = "sent"
+			score = 1.0
+		} else if dst, ok := s.store.MessageByBatchElement(vsBatch.ID, msg.ElementID); ok {
+			result := compare.Messages(msg.Payload, dst.Payload)
 			cmp = &result
 			verdict = result.Verdict()
 			score = result.Overview.KeysScore
-			break
-		}
-	}
-
-	if cmp == nil {
-		if suite.BaselineBatchID == batch.ID {
-			self := compare.Messages(msg.Payload, msg.Payload)
-			cmp = &self
-			verdict = "sent"
-			score = 1.0
-		} else if baseline, ok := s.store.BaselineBatch(suite); ok {
-			if dst, ok := s.store.MessageByBatchElement(baseline.ID, msg.ElementID); ok {
-				result := compare.Messages(msg.Payload, dst.Payload)
-				cmp = &result
-				verdict = result.Verdict()
-				score = result.Overview.KeysScore
-			} else {
-				self := compare.Messages(msg.Payload, msg.Payload)
-				cmp = &self
-				verdict = "pass"
-				score = 1.0
-			}
 		} else {
 			self := compare.Messages(msg.Payload, msg.Payload)
 			cmp = &self
-			verdict = "sent"
+			verdict = "pass"
 			score = 1.0
+		}
+	} else {
+		for _, c := range s.store.ComparisonsForBatch(batch.ID) {
+			if c.SrcMessageID == msg.ID {
+				result := c.Result
+				cmp = &result
+				verdict = result.Verdict()
+				score = result.Overview.KeysScore
+				comparedBatchID = c.DstBatchID
+				break
+			}
+		}
+
+		if cmp == nil {
+			if suite.BaselineBatchID == batch.ID {
+				self := compare.Messages(msg.Payload, msg.Payload)
+				cmp = &self
+				verdict = "sent"
+				score = 1.0
+			} else if baseline, ok := s.store.BaselineBatch(suite); ok {
+				comparedBatchID = baseline.ID
+				if dst, ok := s.store.MessageByBatchElement(baseline.ID, msg.ElementID); ok {
+					result := compare.Messages(msg.Payload, dst.Payload)
+					cmp = &result
+					verdict = result.Verdict()
+					score = result.Overview.KeysScore
+				} else {
+					self := compare.Messages(msg.Payload, msg.Payload)
+					cmp = &self
+					verdict = "pass"
+					score = 1.0
+				}
+			} else {
+				self := compare.Messages(msg.Payload, msg.Payload)
+				cmp = &self
+				verdict = "sent"
+				score = 1.0
+			}
 		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"testcase":        elName,
-		"verdict":         verdict,
-		"score":           score,
-		"batch":           batch,
-		"baselineBatchId": suite.BaselineBatchID,
-		"message":         msg.Payload,
-		"comparison":      cmp,
+		"testcase":         elName,
+		"verdict":          verdict,
+		"score":            score,
+		"batch":            batch,
+		"baselineBatchId":  suite.BaselineBatchID,
+		"comparedBatchId":  comparedBatchID,
+		"comparedBatchSlug": vsSlug,
+		"message":          msg.Payload,
+		"comparison":       cmp,
 	})
 }
 

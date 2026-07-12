@@ -207,9 +207,9 @@
 		margin: 0;
 		padding: 0;
 		background: var(--card);
-		border: 1px solid var(--line);
-		border-radius: calc(var(--radius) + 0.15rem);
-		box-shadow: var(--shadow-soft);
+		border: 1px solid var(--hairline);
+		border-radius: var(--radius-md);
+		box-shadow: none;
 		overflow: hidden;
 	}
 
@@ -228,7 +228,7 @@
 	}
 
 	.row.fresh {
-		background: rgba(15, 92, 76, 0.04);
+		background: rgba(11, 79, 108, 0.04);
 	}
 
 	.row.missing {
@@ -245,7 +245,7 @@
 	}
 
 	.key {
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: var(--font-mono);
 		font-size: 0.9rem;
 	}
 
@@ -304,7 +304,7 @@
 	}
 
 	.ms {
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: var(--font-mono);
 		font-size: 0.78rem;
 		font-variant-numeric: tabular-nums;
 		min-width: 4.5rem;
@@ -321,9 +321,9 @@
 	}
 
 	.raw-toggle:hover:not(:disabled) {
-		background: rgba(15, 92, 76, 0.06);
+		background: rgba(11, 79, 108, 0.06);
 		color: var(--accent);
-		border-color: rgba(15, 92, 76, 0.35);
+		border-color: rgba(11, 79, 108, 0.35);
 	}
 
 	.raw {

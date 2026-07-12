@@ -101,127 +101,145 @@
 	{:else if rows.length === 0}
 		<p class="muted">{blobsOnly ? 'No blob keys in this view.' : 'All keys match.'}</p>
 	{:else}
-		<table>
-			<thead>
-				<tr>
-					<th>Key</th>
-					<th>Status</th>
-					<th>{srcLabel}</th>
-					<th>{dstLabel}</th>
-					<th>Score</th>
-				</tr>
-			</thead>
-			<tbody>
-				{#each rows as row}
-					{@const srcParts = valueParts('src', row.srcValue, row.dstValue, row.srcType, row.dstType, row.kind)}
-					{@const dstParts = valueParts('dst', row.srcValue, row.dstValue, row.srcType, row.dstType, row.kind)}
-					<tr class={row.kind}>
-						<td class="key">{row.name}</td>
-						<td><span class={`tag ${row.kind}`}>{row.kind}</span></td>
-						<td class="val">
-							{#if isBlob(row.srcType, row.srcValue) && row.srcValue}
-								<BlobCell digest={row.srcValue} label={row.name} tone={blobTone('src', row.kind)} />
-							{:else if srcParts}
-								{#each srcParts as part}<span class={part.kind}>{part.text}</span>{/each}
-							{:else}
-								—
-							{/if}
-						</td>
-						<td class="val">
-							{#if isBlob(row.dstType, row.dstValue) && row.dstValue}
-								<BlobCell digest={row.dstValue} label={row.name} tone={blobTone('dst', row.kind)} />
-							{:else if dstParts}
-								{#each dstParts as part}<span class={part.kind}>{part.text}</span>{/each}
-							{:else}
-								—
-							{/if}
-						</td>
-						<td>{row.score === undefined ? '—' : row.score.toFixed(3)}</td>
+		<div class="table-scroll">
+			<table>
+				<thead>
+					<tr>
+						<th>Key</th>
+						<th>Status</th>
+						<th>{srcLabel}</th>
+						<th>{dstLabel}</th>
+						<th>Score</th>
 					</tr>
-				{/each}
-			</tbody>
-		</table>
+				</thead>
+				<tbody>
+					{#each rows as row}
+						{@const srcParts = valueParts('src', row.srcValue, row.dstValue, row.srcType, row.dstType, row.kind)}
+						{@const dstParts = valueParts('dst', row.srcValue, row.dstValue, row.srcType, row.dstType, row.kind)}
+						<tr class={row.kind}>
+							<td class="key">{row.name}</td>
+							<td><span class={`tag ${row.kind}`}>{row.kind}</span></td>
+							<td class="val">
+								{#if isBlob(row.srcType, row.srcValue) && row.srcValue}
+									<BlobCell digest={row.srcValue} label={row.name} tone={blobTone('src', row.kind)} />
+								{:else if srcParts}
+									{#each srcParts as part}<span class={part.kind}>{part.text}</span>{/each}
+								{:else}
+									—
+								{/if}
+							</td>
+							<td class="val">
+								{#if isBlob(row.dstType, row.dstValue) && row.dstValue}
+									<BlobCell digest={row.dstValue} label={row.name} tone={blobTone('dst', row.kind)} />
+								{:else if dstParts}
+									{#each dstParts as part}<span class={part.kind}>{part.text}</span>{/each}
+								{:else}
+									—
+								{/if}
+							</td>
+							<td class="score">{row.score === undefined ? '—' : row.score.toFixed(3)}</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
 	{/if}
 </section>
 
 <style>
 	.block {
-		margin: 0 0 1.75rem;
+		margin: 0 0 1.5rem;
 	}
 	.head {
 		display: flex;
 		align-items: baseline;
 		gap: 0.75rem;
-		margin-bottom: 0.75rem;
+		margin-bottom: 0.55rem;
 	}
 	h3 {
 		margin: 0;
-		font-size: 1rem;
-		letter-spacing: -0.02em;
+		font-size: 0.95rem;
+		font-weight: 650;
+		letter-spacing: -0.015em;
 	}
 	.hint {
 		color: var(--muted);
-		font-size: 0.8rem;
+		font-size: 0.78rem;
 	}
 	.muted {
 		color: var(--muted);
 		margin: 0;
 	}
+	.table-scroll {
+		width: 100%;
+		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
+		border: 1px solid var(--hairline);
+		border-radius: var(--radius-md);
+		box-shadow: none;
+		background: var(--card);
+	}
 	table {
 		width: 100%;
+		min-width: 36rem;
 		border-collapse: separate;
 		border-spacing: 0;
-		background: var(--card);
-		border: 1px solid var(--line);
-		box-shadow: var(--shadow-soft);
-		border-radius: calc(var(--radius) + 0.15rem);
-		overflow: hidden;
-		font-size: 0.95rem;
+		font-size: 0.88rem;
 	}
 	th,
 	td {
 		text-align: left;
-		padding: 0.75rem 0.95rem;
+		padding: 0.5rem 0.75rem;
 		border-top: 1px solid var(--line);
 		vertical-align: top;
 	}
 	th {
-		font-size: 0.72rem;
+		position: sticky;
+		top: 0;
+		z-index: 1;
+		font-size: 0.68rem;
+		font-weight: 650;
 		text-transform: uppercase;
-		letter-spacing: 0.08em;
+		letter-spacing: 0.07em;
 		color: var(--muted);
 		border-top: 0;
-		background: rgba(243, 239, 230, 0.55);
+		background: color-mix(in srgb, var(--bg) 70%, var(--card));
 	}
 	tbody tr {
 		transition: background-color 160ms var(--ease);
 	}
 	tbody tr:hover {
-		background: rgba(15, 92, 76, 0.03);
+		background: color-mix(in srgb, var(--accent) 4%, transparent);
 	}
 	.key {
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-		font-size: 0.88rem;
+		font-family: var(--font-mono);
+		font-size: 0.82rem;
+	}
+	.score {
+		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
+		font-size: 0.82rem;
 	}
 	.val {
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-		font-size: 0.85rem;
+		font-family: var(--font-mono);
+		font-size: 0.8rem;
 		white-space: pre-wrap;
 		word-break: break-word;
-		max-width: 20rem;
+		max-width: 18rem;
 	}
 	.val .del {
-		background: rgba(154, 52, 18, 0.22);
+		background: color-mix(in srgb, var(--diff) 22%, transparent);
 		box-decoration-break: clone;
 	}
 	.val .ins {
-		background: rgba(15, 92, 76, 0.2);
+		background: color-mix(in srgb, var(--accent) 20%, transparent);
 		box-decoration-break: clone;
 	}
 	.tag {
 		text-transform: uppercase;
-		font-size: 0.7rem;
-		letter-spacing: 0.08em;
+		font-size: 0.66rem;
+		font-weight: 650;
+		letter-spacing: 0.07em;
 	}
 	.tag.match {
 		color: var(--pass);
@@ -236,12 +254,12 @@
 		color: var(--muted);
 	}
 	tr.changed {
-		background: rgba(154, 52, 18, 0.05);
+		background: color-mix(in srgb, var(--diff) 5%, transparent);
 	}
 	tr.fresh {
-		background: rgba(15, 92, 76, 0.05);
+		background: color-mix(in srgb, var(--accent) 5%, transparent);
 	}
 	tr.missing {
-		background: rgba(107, 99, 88, 0.07);
+		background: color-mix(in srgb, var(--muted) 8%, transparent);
 	}
 </style>

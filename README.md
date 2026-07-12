@@ -208,8 +208,10 @@ Overview:
 | `POST` | `/v1/batch/{team}/{suite}/{batch}/promote` | session | **admin+** |
 | `GET`/`POST` | `/v1/teams` | session | list = my teams; create → caller is **owner** |
 | `GET`/`POST`/`PATCH`/`DELETE` | `/v1/teams/{team}/members`… | session | viewer list; admin+ manage |
+| `POST` | `/v1/teams/{team}/invites` | session | **admin+** — create invite link |
+| `GET`/`POST` | `/v1/invites/{token}`, `…/accept` | peek public; accept needs session | join team via link |
 | `GET`/`POST` | `/v1/teams/{team}/suites`… | session | read viewer+; create **admin+** |
-| `GET` | `/v1/teams/.../batches`, `.../elements/{element}` | session | **viewer+**; element includes metric comparison |
+| `GET` | `/v1/teams/.../batches`, `.../elements/{element}` | session | **viewer+**; optional `?vs={batchSlug}` to compare against another batch instead of the suite baseline; element includes metric comparison |
 
 ## SDK (Go)
 
@@ -248,7 +250,7 @@ More detail: [`sdk/go/README.md`](sdk/go/README.md).
 
 ### Metrics in the dashboard
 
-Element detail (`/t/{team}/{suite}/{batch}/e/{element}`) shows metric overview cards plus **horizontal duration bars** (this revision vs baseline) with `+N ms` / `−N ms` deltas. Raw values are optional via “Show raw values”.
+Element detail (`/t/{team}/{suite}/{batch}/e/{element}`) shows metric overview cards plus **horizontal duration bars** (this revision vs baseline, or vs another batch via **Compare to**) with `+N ms` / `−N ms` deltas. Filters sync to the URL (`changed`, `blobs`, `vs`); use `j` / `k` to move between testcases. Raw values are optional via “Show raw values”.
 
 To demo without writing a client:
 
@@ -298,7 +300,7 @@ API keys are per-user and inherit that user's team roles. Cross-team access retu
 | admin | + create suites, promote baseline, manage members |
 | owner | + grant/revoke owner; creating a team makes you owner |
 
-Bootstrap user is owner of seeded team `acme`. Signup creates a user with no teams until invited or they create one. Invite and change roles from **Team → Members** in the dashboard (`/t/{team}/members`).
+Bootstrap user is owner of seeded team `acme`. Signup creates a user with no teams until invited or they create one. From **Team → Members** (`/t/{team}/members`): add an existing user by email, change roles, or **create an invite link** (`/invite/{token}`) for someone who still needs an account.
 
 For shared deployments:
 
@@ -315,7 +317,9 @@ Production startup fails if secrets are still the local defaults. Sealed batches
 
 ## Brand
 
-Logo, GitHub banner, and sized favicons live in [`docs/brand/`](docs/brand/). Web serves marks from `web/static/`.
+Accent is **ocean blue** (`#0b4f6c` light / `#5ba4c4` dark) on a parchment canvas — see [`docs/brand/README.md`](docs/brand/README.md) for tokens, typography, and asset files. Logo, GitHub banner, and sized favicons live under `docs/brand/`; the web app serves marks from `web/static/`.
+
+Dashboard UI notes (fonts, dark mode, chrome): [`web/README.md`](web/README.md).
 
 ## License
 

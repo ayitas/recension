@@ -706,9 +706,17 @@ paths:
       operationId: getElement
       summary: Get one testcase comparison detail (checks, asserts, metrics vs baseline)
       description: |-
-        Returns the submitted message plus a comparison against the suite baseline.
+        Returns the submitted message plus a comparison against the suite baseline
+        (or against another batch when `vs` is set).
         `comparison.metrics` and overview `metricsCount*` / `metricsDuration*` power the
-        dashboard duration bars (this revision vs baseline). Requires **viewer+** on the team.
+        dashboard duration bars. Requires **viewer+** on the team.
+      parameters:
+      - name: vs
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Optional batch slug to compare against instead of the suite baseline
       security:
       - SessionBearer: []
       responses:
@@ -721,6 +729,92 @@ paths:
         '401':
           "$ref": "#/components/responses/Error"
         '404':
+          "$ref": "#/components/responses/Error"
+  "/v1/teams/{team}/invites":
+    parameters:
+    - name: team
+      in: path
+      required: true
+      schema:
+        "$ref": "#/components/schemas/Slug"
+    post:
+      tags:
+      - Teams
+      operationId: createInvite
+      summary: Create a shareable invite link (admin+)
+      security:
+      - SessionBearer: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  "$ref": "#/components/schemas/TeamRole"
+      responses:
+        '201':
+          description: Invite created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, role, expiresAt, path]
+                properties:
+                  token:
+                    type: string
+                  role:
+                    "$ref": "#/components/schemas/TeamRole"
+                  expiresAt:
+                    type: string
+                    format: date-time
+                  path:
+                    type: string
+                    example: /invite/abc…
+        '401':
+          "$ref": "#/components/responses/Error"
+        '403':
+          "$ref": "#/components/responses/Error"
+        '404':
+          "$ref": "#/components/responses/Error"
+  "/v1/invites/{token}":
+    parameters:
+    - name: token
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      tags:
+      - Teams
+      operationId: getInvite
+      summary: Peek invite metadata (public)
+      security: []
+      responses:
+        '200':
+          description: Invite info
+        '404':
+          "$ref": "#/components/responses/Error"
+  "/v1/invites/{token}/accept":
+    parameters:
+    - name: token
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      tags:
+      - Teams
+      operationId: acceptInvite
+      summary: Accept invite and join team (session)
+      security:
+      - SessionBearer: []
+      responses:
+        '200':
+          description: Joined
+        '401':
+          "$ref": "#/components/responses/Error"
+        '410':
           "$ref": "#/components/responses/Error"
 components:
   securitySchemes:

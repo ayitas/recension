@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { login } from '$lib/api';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import { isLoggedIn } from '$lib/auth';
 
 	let email = $state('');
@@ -8,8 +9,10 @@
 	let error = $state('');
 	let loading = $state(false);
 
+	const next = $derived($page.url.searchParams.get('next') || '/');
+
 	$effect(() => {
-		if (isLoggedIn()) goto('/');
+		if (isLoggedIn()) goto(next);
 	});
 
 	async function onSubmit(e: Event) {
@@ -18,7 +21,7 @@
 		error = '';
 		try {
 			await login(email, password);
-			goto('/');
+			goto(next);
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -29,8 +32,8 @@
 
 <section class="panel auth">
 	<p class="eyebrow">welcome back</p>
-	<h1>Log in</h1>
-	<p class="muted">Sign in to browse teams, suites, and baselines.</p>
+	<h1 class="brand-font">Log in</h1>
+	<p class="lead">Sign in to browse teams, suites, and baselines.</p>
 	<form onsubmit={onSubmit}>
 		<label>
 			Email
@@ -44,10 +47,12 @@
 		<button type="submit" disabled={loading}>{loading ? 'Signing in…' : 'Log in'}</button>
 	</form>
 	<p class="muted tip">
-		Local bootstrap: <code>dev@recension.local</code> / <code>dev-password</code>
+		Local bootstrap: <code class="mono">dev@recension.local</code> /
+		<code class="mono">dev-password</code>
 	</p>
 	<p class="muted switch">
-		No account? <a href="/signup">Sign up</a>
+		No account?
+		<a href={`/signup${next !== '/' ? `?next=${encodeURIComponent(next)}` : ''}`}>Sign up</a>
 	</p>
 </section>
 
@@ -59,39 +64,42 @@
 	.eyebrow {
 		margin: 0 0 0.55rem;
 		text-transform: uppercase;
-		letter-spacing: 0.12em;
-		font-size: 0.7rem;
+		letter-spacing: 0.1em;
+		font-size: 0.75rem;
+		font-weight: 600;
 		color: var(--accent);
 	}
 
 	h1 {
 		margin: 0 0 0.35rem;
-		letter-spacing: -0.035em;
+		font-size: clamp(2rem, 5vw, 2.5rem);
+	}
+
+	.lead {
+		margin: 0;
+		color: var(--body);
+		font-size: 1rem;
+		line-height: 1.5;
 	}
 
 	form {
 		display: grid;
 		gap: 0.95rem;
-		margin-top: 1.35rem;
+		margin-top: 1.5rem;
 	}
 
 	.tip {
 		margin-top: 1.35rem;
-		font-size: 0.9rem;
+		font-size: 0.875rem;
 	}
 
 	.switch {
 		margin: 0.85rem 0 0;
-		font-size: 0.92rem;
+		font-size: 0.9375rem;
 	}
 
 	.switch a {
 		color: var(--accent);
-		border-bottom: 1px solid rgba(15, 92, 76, 0.3);
-	}
-
-	code {
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-		font-size: 0.85em;
+		font-weight: 600;
 	}
 </style>

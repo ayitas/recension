@@ -106,12 +106,28 @@ export type ElementDetail = {
 	score: number;
 	batch: Batch;
 	baselineBatchId: string;
+	comparedBatchId?: string;
+	comparedBatchSlug?: string;
 	message: {
 		metadata: { team: string; suite: string; version: string; testcase: string; builtAt: string };
 		results: Array<{ key: string; kind: string; value: unknown }>;
 		metrics: Array<{ key: string; value: number }>;
 	};
 	comparison: Comparison;
+};
+
+export type InviteInfo = {
+	team: Team;
+	role: TeamRole;
+	expiresAt: string;
+	expired: boolean;
+};
+
+export type CreatedInvite = {
+	token: string;
+	role: TeamRole;
+	expiresAt: string;
+	path: string;
 };
 
 type SessionResponse = {
@@ -175,6 +191,16 @@ export const updateMemberRole = (team: string, userId: string, role: TeamRole) =
 export const removeMember = (team: string, userId: string) =>
 	api<void>(`/v1/teams/${team}/members/${userId}`, { method: 'DELETE' });
 
+export const createInvite = (team: string, role: TeamRole) =>
+	api<CreatedInvite>(`/v1/teams/${team}/invites`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ role })
+	});
+export const getInvite = (token: string) => api<InviteInfo>(`/v1/invites/${token}`);
+export const acceptInvite = (token: string) =>
+	api<{ member: TeamMember; team: Team }>(`/v1/invites/${token}/accept`, { method: 'POST' });
+
 export const ROLE_RANK: Record<TeamRole, number> = {
 	viewer: 1,
 	member: 2,
@@ -189,10 +215,18 @@ export const listBatches = (team: string, suite: string) =>
 	api<Batch[]>(`/v1/teams/${team}/suites/${suite}/batches`);
 export const getBatch = (team: string, suite: string, batch: string) =>
 	api<BatchDetail>(`/v1/teams/${team}/suites/${suite}/batches/${batch}`);
-export const getElement = (team: string, suite: string, batch: string, element: string) =>
-	api<ElementDetail>(
-		`/v1/teams/${team}/suites/${suite}/batches/${batch}/elements/${encodeURIComponent(element)}`
+export const getElement = (
+	team: string,
+	suite: string,
+	batch: string,
+	element: string,
+	vs?: string
+) => {
+	const q = vs ? `?vs=${encodeURIComponent(vs)}` : '';
+	return api<ElementDetail>(
+		`/v1/teams/${team}/suites/${suite}/batches/${batch}/elements/${encodeURIComponent(element)}${q}`
 	);
+};
 export const promoteBatch = (team: string, suite: string, batch: string) =>
 	api<void>(`/v1/batch/${team}/${suite}/${batch}/promote`, { method: 'POST' });
 

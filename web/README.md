@@ -17,46 +17,36 @@ make api
 make web    # Vite in web/
 ```
 
-Or inside `web/`:
-
-```bash
-npm ci
-npm run dev
-```
-
 Vite proxies `/v1` and `/healthz` to `http://localhost:8080`.
 
-Full stack in Docker: `make up` → http://localhost:3000
+Full stack: `make up` → http://localhost:3000
 
-## Auth & tenancy
+## Product UI notes
 
-- Login / signup store an HMAC session in `localStorage` (`Authorization: Bearer …`)
-- Home lists **only teams you belong to**
-- Create team → you become **owner**
-- **Members**: `/t/{team}/members` (invite by existing account email; admin/owner manage roles)
-- Cross-team URLs return not found from the API (UI shows the error)
+Hybrid look: pill CTAs, hairline elevation, dark code wells, Recension **ocean** accent (`#0b4f6c`) on parchment canvas. Details: [`docs/brand/README.md`](../docs/brand/README.md).
 
-Bootstrap (dev): `dev@recension.local` / `dev-password` — owner of `acme`.
+- **Typography:** Bricolage Grotesque (brand / titles), Source Sans 3 (UI / data), JetBrains Mono (code)
+- **Theme:** Light/dark toggle in the header (`localStorage`)
+- **Chrome:** Sticky header with team switcher + suites/members/batches chips
+- **Element page:** Sticky filters (URL-synced), compare-to picker (`?vs=`), keyboard `j`/`k` next/prev
+- **Loading / errors:** Skeleton + `ErrorBanner` with retry; promote/remove use in-app confirm dialogs
+- **Invites:** Members → create invite link → `/invite/{token}`
 
 ## Main routes
 
 | Path | Purpose |
 |------|---------|
-| `/` | Teams (create + list) |
+| `/` | Teams (logged-in workbench) |
 | `/login`, `/signup`, `/account` | Auth + API key |
-| `/t/{team}` | Suites (+ link to Members) |
-| `/t/{team}/members` | List / invite / change role / remove |
+| `/invite/{token}` | Accept team invite |
+| `/t/{team}` | Suites |
+| `/t/{team}/members` | Members + invite links |
 | `/t/{team}/{suite}` | Batches |
-| `/t/{team}/{suite}/{batch}` | Elements in a revision |
-| `/t/{team}/{suite}/{batch}/e/{element}` | Diff: checks, assumptions, **metrics bars** |
-
-## Metrics UI
-
-On the element page, metrics use horizontal duration bars (this revision vs baseline) with `+N ms` / `−N ms` deltas. Optional “Show raw values” opens the table view. Overview cards show metric common / fresh / missing counts.
+| `/t/{team}/{suite}/{batch}` | Elements + promote |
+| `/t/.../e/{element}` | Diff + metrics bars |
 
 ## Check
 
 ```bash
-make check   # from repo root
-# or: npm run check
+make check
 ```

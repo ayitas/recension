@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { createSuite, listSuites, slugify, type Suite } from '$lib/api';
+	import ErrorBanner from '$lib/ErrorBanner.svelte';
+	import Skeleton from '$lib/Skeleton.svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { isLoggedIn } from '$lib/auth';
 
 	let suites = $state<Suite[]>([]);
 	let error = $state('');
+	let loading = $state(true);
 	let name = $state('');
 	let slug = $state('');
 	let slugTouched = $state(false);
@@ -16,12 +19,15 @@
 
 	async function load() {
 		if (!team) return;
+		loading = true;
 		try {
 			suites = await listSuites(team);
 			error = '';
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
 			if (error.includes('authentication')) goto('/login');
+		} finally {
+			loading = false;
 		}
 	}
 
@@ -58,12 +64,14 @@
 
 <p class="crumb"><a href="/">Teams</a> / {team}</p>
 <div class="title-row">
-	<h1>{team}</h1>
+	<h1 class="brand-font">{team}</h1>
 	<a class="members-link" href={`/t/${team}/members`}>Members</a>
 </div>
 
 {#if error}
-	<p class="error">{error}</p>
+	<ErrorBanner message={error} onretry={load} />
+{:else if loading}
+	<Skeleton lines={3} />
 {:else if suites.length === 0}
 	<p class="muted lead">No suites yet. A suite maps to one workflow under test.</p>
 {:else}
@@ -102,17 +110,18 @@
 		gap: 1rem;
 		align-items: baseline;
 		justify-content: space-between;
-		margin-bottom: 1.5rem;
+		margin-bottom: 1.15rem;
 	}
 
 	h1 {
 		margin: 0;
-		letter-spacing: -0.04em;
-		font-size: clamp(1.9rem, 4vw, 2.6rem);
+		letter-spacing: -0.035em;
+		font-size: clamp(1.65rem, 3.5vw, 2.2rem);
 	}
 
 	.members-link {
-		font-size: 0.92rem;
+		font-size: 0.9rem;
+		font-weight: 550;
 		color: var(--accent);
 		border-bottom: 1px solid transparent;
 	}
@@ -126,22 +135,23 @@
 	}
 
 	.status {
-		font-size: 0.88rem;
+		font-size: 0.84rem;
 	}
 
 	.create {
-		margin-top: 1.35rem;
+		margin-top: 1.15rem;
 	}
 
 	h3 {
-		margin: 0 0 0.85rem;
-		font-size: 0.95rem;
+		margin: 0 0 0.75rem;
+		font-size: 0.9rem;
+		font-weight: 650;
 	}
 
 	.fields {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-		gap: 0.85rem;
-		margin-bottom: 0.95rem;
+		gap: 0.75rem;
+		margin-bottom: 0.85rem;
 	}
 </style>

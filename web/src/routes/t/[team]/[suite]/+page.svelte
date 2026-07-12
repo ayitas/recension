@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { listBatches, me, type Batch } from '$lib/api';
 	import SdkSnippet from '$lib/SdkSnippet.svelte';
+	import ErrorBanner from '$lib/ErrorBanner.svelte';
+	import Skeleton from '$lib/Skeleton.svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { isLoggedIn } from '$lib/auth';
 
 	let batches = $state<Batch[]>([]);
 	let error = $state('');
+	let loading = $state(true);
 	let apiKey = $state('YOUR_API_KEY');
 
 	const team = $derived($page.params.team ?? '');
@@ -31,22 +34,28 @@
 		return parts.join(' · ');
 	}
 
+	async function load() {
+		if (!team || !suite) return;
+		loading = true;
+		try {
+			const data = await listBatches(team, suite);
+			batches = [...data].sort(
+				(a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()
+			);
+			error = '';
+		} catch (err) {
+			error = err instanceof Error ? err.message : String(err);
+		} finally {
+			loading = false;
+		}
+	}
+
 	$effect(() => {
 		if (!isLoggedIn()) {
 			goto('/login');
 			return;
 		}
-		if (!team || !suite) return;
-		listBatches(team, suite)
-			.then((data) => {
-				batches = [...data].sort(
-					(a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()
-				);
-				error = '';
-			})
-			.catch((err: Error) => {
-				error = err.message;
-			});
+		void load();
 		me()
 			.then((u) => {
 				apiKey = u.apiKey;
@@ -58,10 +67,12 @@
 <p class="crumb">
 	<a href="/">Teams</a> / <a href={`/t/${team}`}>{team}</a> / {suite}
 </p>
-<h1>{suite}</h1>
+<h1 class="brand-font">{suite}</h1>
 
 {#if error}
-	<p class="error">{error}</p>
+	<ErrorBanner message={error} onretry={load} />
+{:else if loading}
+	<Skeleton lines={4} />
 {:else if batches.length === 0}
 	<p class="muted lead">No batches yet. Submit your first revision to establish a baseline.</p>
 	<SdkSnippet {team} {suite} {apiKey} />
@@ -93,9 +104,9 @@
 
 <style>
 	h1 {
-		margin: 0 0 1.5rem;
-		letter-spacing: -0.04em;
-		font-size: clamp(1.9rem, 4vw, 2.6rem);
+		margin: 0 0 1.15rem;
+		letter-spacing: -0.035em;
+		font-size: clamp(1.65rem, 3.5vw, 2.2rem);
 	}
 
 	.lead {
@@ -106,23 +117,25 @@
 		display: flex;
 		flex-wrap: wrap;
 		align-items: baseline;
-		gap: 0.55rem 0.85rem;
+		gap: 0.45rem 0.75rem;
 		min-width: 0;
 	}
 
 	.baseline {
-		font-size: 0.68rem;
+		font-size: 0.66rem;
+		font-weight: 650;
 		text-transform: uppercase;
-		letter-spacing: 0.08em;
+		letter-spacing: 0.07em;
 		color: var(--sent);
 		border: 1px solid color-mix(in srgb, var(--sent) 30%, transparent);
-		border-radius: 999px;
-		padding: 0.12rem 0.45rem;
+		border-radius: var(--radius);
+		padding: 0.1rem 0.4rem;
 	}
 
 	.scores {
 		color: var(--muted);
-		font-size: 0.88rem;
+		font-size: 0.84rem;
+		font-variant-numeric: tabular-nums;
 	}
 
 	.scores.has-diff {
@@ -131,18 +144,19 @@
 
 	.when {
 		flex-shrink: 0;
-		font-size: 0.88rem;
+		font-size: 0.84rem;
 	}
 
 	.more {
-		margin-top: 1.35rem;
+		margin-top: 1.15rem;
 	}
 
 	.more summary {
 		cursor: pointer;
 		color: var(--accent);
-		margin-bottom: 0.65rem;
+		margin-bottom: 0.55rem;
 		list-style: none;
+		font-weight: 550;
 	}
 
 	.more summary::-webkit-details-marker {

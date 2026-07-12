@@ -47,7 +47,7 @@
 </script>
 
 <p class="crumb"><a href="/">Home</a> / Account</p>
-<h1>Account</h1>
+<h1 class="brand-font">Account</h1>
 
 {#if error}
 	<p class="error">{error}</p>
@@ -61,7 +61,7 @@
 		</div>
 		<div class="row">
 			<span class="label">API key</span>
-			<code>{user.apiKey}</code>
+			<code class="code-well key">{user.apiKey}</code>
 		</div>
 		<div class="actions">
 			<button type="button" onclick={copyKey}>{copied ? 'Copied' : 'Copy key'}</button>
@@ -70,13 +70,13 @@
 			</button>
 		</div>
 		<p class="muted note">
-			Use this key with the Go SDK via <code>RECENSION_API_KEY</code> or
-			<code>-api-key</code>.
+			Use this key with the Go SDK via <code class="mono">RECENSION_API_KEY</code> or
+			<code class="mono">-api-key</code>.
 		</p>
 	</section>
 
 	<section class="panel later">
-		<h2>Quick start</h2>
+		<h2 class="brand-font">Quick start</h2>
 		<p class="muted intro">
 			After you create a team and suite, run a workflow like this (replace team/suite as needed).
 		</p>
@@ -87,8 +87,7 @@
 <style>
 	h1 {
 		margin: 0 0 1.35rem;
-		letter-spacing: -0.04em;
-		font-size: clamp(1.9rem, 4vw, 2.6rem);
+		font-size: clamp(1.75rem, 4vw, 2.25rem);
 	}
 
 	.panel {
@@ -102,12 +101,12 @@
 
 	.later h2 {
 		margin: 0 0 0.35rem;
-		font-size: 1.05rem;
-		letter-spacing: -0.02em;
+		font-size: 1.25rem;
 	}
 
 	.intro {
 		margin-bottom: 0.85rem;
+		color: var(--body);
 	}
 
 	.row {
@@ -117,16 +116,18 @@
 	}
 
 	.label {
-		font-size: 0.72rem;
+		font-size: 0.75rem;
 		text-transform: uppercase;
 		letter-spacing: 0.08em;
 		color: var(--muted);
+		font-weight: 600;
 	}
 
-	code {
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-		font-size: 0.9rem;
+	.key {
+		display: block;
+		padding: 1rem 1.25rem;
 		word-break: break-all;
+		font-size: 0.8125rem;
 	}
 
 	.actions {
@@ -138,7 +139,7 @@
 
 	.note {
 		margin: 0;
-		font-size: 0.92rem;
-		line-height: 1.45;
+		font-size: 0.9375rem;
+		line-height: 1.5;
 	}
 </style>

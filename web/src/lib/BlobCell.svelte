@@ -65,10 +65,10 @@
 		background: rgba(154, 52, 18, 0.18);
 	}
 	.blob.ins code {
-		background: rgba(15, 92, 76, 0.16);
+		background: rgba(11, 79, 108, 0.16);
 	}
 	code {
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: var(--font-mono);
 		font-size: 0.8rem;
 		padding: 0.2rem 0.4rem;
 		background: rgba(28, 25, 21, 0.06);

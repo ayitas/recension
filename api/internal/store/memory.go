@@ -18,6 +18,7 @@ type Memory struct {
 	usersByID   map[string]*User
 	teams       map[string]*Team
 	members     map[string]string // "teamID|userID" -> role
+	invites     map[string]*TeamInvite
 	suites      map[string]*Suite
 	batches     map[string]*Batch
 	elements    map[string]*Element
@@ -36,6 +37,7 @@ func NewMemory(bootstrapAPIKey, bootstrapPasswordHash string) *Memory {
 		usersByID:   map[string]*User{},
 		teams:       map[string]*Team{},
 		members:     map[string]string{},
+		invites:     map[string]*TeamInvite{},
 		suites:      map[string]*Suite{},
 		batches:     map[string]*Batch{},
 		elements:    map[string]*Element{},
@@ -277,6 +279,75 @@ func (m *Memory) ListMembers(teamSlug string) ([]TeamMember, error) {
 		out = append(out, TeamMember{UserID: u.ID, Email: u.Email, Role: role})
 	}
 	return out, nil
+}
+
+func (m *Memory) CreateInvite(teamID, createdBy, role string, ttl time.Duration) (*TeamInvite, error) {
+	if !ValidRole(role) {
+		return nil, fmt.Errorf("invalid role %q", role)
+	}
+	if ttl <= 0 {
+		ttl = 7 * 24 * time.Hour
+	}
+	token := uuid.NewString() + uuid.NewString()
+	inv := &TeamInvite{
+		ID:        uuid.NewString(),
+		TeamID:    teamID,
+		Token:     token,
+		Role:      role,
+		CreatedBy: createdBy,
+		ExpiresAt: time.Now().UTC().Add(ttl),
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.invites[token] = inv
+	return inv, nil
+}
+
+func (m *Memory) InviteByToken(token string) (*TeamInvite, *Team, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	inv, ok := m.invites[token]
+	if !ok {
+		return nil, nil, fmt.Errorf("invite not found")
+	}
+	var team *Team
+	for _, t := range m.teams {
+		if t.ID == inv.TeamID {
+			cp := *t
+			team = &cp
+			break
+		}
+	}
+	if team == nil {
+		return nil, nil, fmt.Errorf("team not found")
+	}
+	cp := *inv
+	return &cp, team, nil
+}
+
+func (m *Memory) AcceptInvite(token, userID string) (*TeamMember, error) {
+	inv, _, err := m.InviteByToken(token)
+	if err != nil {
+		return nil, err
+	}
+	if inv.AcceptedAt != nil || time.Now().UTC().After(inv.ExpiresAt) {
+		return nil, ErrInviteExpired
+	}
+	if err := m.AddMember(inv.TeamID, userID, inv.Role); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	now := time.Now().UTC()
+	if stored, ok := m.invites[token]; ok {
+		stored.AcceptedAt = &now
+	}
+	m.mu.Unlock()
+	u, _ := m.UserByID(userID)
+	email := ""
+	if u != nil {
+		email = u.Email
+	}
+	return &TeamMember{UserID: userID, Email: email, Role: inv.Role}, nil
 }
 
 func (m *Memory) EnsureSuite(teamSlug, suiteSlug, name string) (*Suite, error) {

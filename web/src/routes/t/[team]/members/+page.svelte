@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		addMember,
+		createInvite,
 		listMembers,
 		me,
 		removeMember,
@@ -9,6 +10,9 @@
 		type TeamMember,
 		type TeamRole
 	} from '$lib/api';
+	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
+	import ErrorBanner from '$lib/ErrorBanner.svelte';
+	import Skeleton from '$lib/Skeleton.svelte';
 	import { isLoggedIn, type AuthUser } from '$lib/auth';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
@@ -18,11 +22,18 @@
 	let members = $state<TeamMember[]>([]);
 	let user = $state<AuthUser | null>(null);
 	let error = $state('');
+	let loading = $state(true);
 	let formError = $state('');
 	let email = $state('');
 	let role = $state<TeamRole>('member');
+	let inviteRole = $state<TeamRole>('member');
 	let adding = $state(false);
 	let busyId = $state('');
+	let inviteBusy = $state(false);
+	let inviteLink = $state('');
+	let inviteCopied = $state(false);
+	let removeTarget = $state<TeamMember | null>(null);
+	let confirmOpen = $state(false);
 
 	const team = $derived($page.params.team ?? '');
 	const myMembership = $derived(members.find((m) => m.userId === user?.id));
@@ -33,6 +44,7 @@
 
 	async function load() {
 		if (!team) return;
+		loading = true;
 		try {
 			const [meUser, list] = await Promise.all([me(), listMembers(team)]);
 			user = meUser;
@@ -44,6 +56,8 @@
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
 			if (error.toLowerCase().includes('authentication')) goto('/login');
+		} finally {
+			loading = false;
 		}
 	}
 
@@ -101,18 +115,44 @@
 		}
 	}
 
-	async function onRemove(m: TeamMember) {
-		if (!confirm(`Remove ${m.email} from ${team}?`)) return;
-		busyId = m.userId;
+	function askRemove(m: TeamMember) {
+		removeTarget = m;
+		confirmOpen = true;
+	}
+
+	async function doRemove() {
+		if (!removeTarget) return;
+		busyId = removeTarget.userId;
 		formError = '';
 		try {
-			await removeMember(team, m.userId);
+			await removeMember(team, removeTarget.userId);
 			await load();
 		} catch (err) {
 			formError = err instanceof Error ? err.message : String(err);
 		} finally {
 			busyId = '';
+			removeTarget = null;
 		}
+	}
+
+	async function onCreateInvite() {
+		inviteBusy = true;
+		formError = '';
+		try {
+			const inv = await createInvite(team, inviteRole);
+			inviteLink = `${window.location.origin}${inv.path}`;
+		} catch (err) {
+			formError = err instanceof Error ? err.message : String(err);
+		} finally {
+			inviteBusy = false;
+		}
+	}
+
+	async function copyInvite() {
+		if (!inviteLink) return;
+		await navigator.clipboard.writeText(inviteLink);
+		inviteCopied = true;
+		setTimeout(() => (inviteCopied = false), 1500);
 	}
 </script>
 
@@ -123,18 +163,19 @@
 </p>
 
 <div class="title-row">
-	<h1>Members</h1>
+	<h1 class="brand-font">Members</h1>
 	{#if myRole}
 		<span class="badge">{myRole}</span>
 	{/if}
 </div>
 <p class="muted lead">
-	Team access is role-based: viewers read, members submit, admins manage suites and people, owners
-	control ownership.
+	Viewers read, members submit, admins manage suites and people, owners control ownership.
 </p>
 
 {#if error}
-	<p class="error">{error}</p>
+	<ErrorBanner message={error} onretry={load} />
+{:else if loading}
+	<Skeleton lines={4} />
 {:else}
 	<ul class="list-card members">
 		{#each members as m}
@@ -161,7 +202,7 @@
 							type="button"
 							class="danger"
 							disabled={busyId === m.userId}
-							onclick={() => onRemove(m)}
+							onclick={() => askRemove(m)}
 						>
 							Remove
 						</button>
@@ -175,8 +216,8 @@
 
 	{#if canManage}
 		<form class="panel create" onsubmit={onAdd}>
-			<h3>Add member</h3>
-			<p class="muted hint">User must already have a Recension account (same email as signup/login).</p>
+			<h3>Add existing user</h3>
+			<p class="muted hint">User must already have a Recension account.</p>
 			<div class="fields">
 				<label>
 					Email
@@ -194,50 +235,87 @@
 			{#if formError}<p class="error">{formError}</p>{/if}
 			<button type="submit" disabled={adding}>{adding ? 'Adding…' : 'Add member'}</button>
 		</form>
+
+		<section class="panel create">
+			<h3>Invite link</h3>
+			<p class="muted hint">Share a link — recipient logs in (or signs up) then joins with the chosen role.</p>
+			<div class="fields">
+				<label>
+					Role
+					<select bind:value={inviteRole}>
+						{#each inviteRoles as r}
+							<option value={r}>{r}</option>
+						{/each}
+					</select>
+				</label>
+			</div>
+			<div class="invite-actions">
+				<button type="button" onclick={onCreateInvite} disabled={inviteBusy}>
+					{inviteBusy ? 'Creating…' : 'Create invite link'}
+				</button>
+				{#if inviteLink}
+					<code class="link mono">{inviteLink}</code>
+					<button type="button" class="ghost" onclick={copyInvite}>
+						{inviteCopied ? 'Copied' : 'Copy'}
+					</button>
+				{/if}
+			</div>
+		</section>
 	{:else if myRole}
 		<p class="muted note">Only admins and owners can invite or change roles.</p>
 	{/if}
-
-	{#if formError && !canManage}
-		<p class="error">{formError}</p>
-	{/if}
 {/if}
+
+<ConfirmDialog
+	bind:open={confirmOpen}
+	title="Remove member?"
+	confirmLabel="Remove"
+	danger
+	busy={busyId !== ''}
+	onconfirm={doRemove}
+>
+	{#if removeTarget}
+		<p>Remove <strong>{removeTarget.email}</strong> from <span class="mono">{team}</span>?</p>
+	{/if}
+</ConfirmDialog>
 
 <style>
 	.title-row {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.75rem;
+		gap: 0.65rem;
 		align-items: baseline;
-		margin-bottom: 0.45rem;
+		margin-bottom: 0.35rem;
 	}
 
 	h1 {
 		margin: 0;
-		letter-spacing: -0.04em;
-		font-size: clamp(1.9rem, 4vw, 2.6rem);
+		letter-spacing: -0.035em;
+		font-size: clamp(1.65rem, 3.5vw, 2.2rem);
 	}
 
 	.badge {
-		font-size: 0.72rem;
+		font-size: 0.68rem;
+		font-weight: 650;
 		text-transform: uppercase;
-		letter-spacing: 0.08em;
+		letter-spacing: 0.07em;
 		color: var(--accent);
 		background: var(--accent-soft);
-		border: 1px solid rgba(15, 92, 76, 0.25);
+		border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
 		border-radius: var(--radius);
-		padding: 0.25rem 0.55rem;
+		padding: 0.2rem 0.45rem;
 	}
 
 	.lead {
-		margin: 0 0 1.25rem;
+		margin: 0 0 1.1rem;
 		max-width: 36rem;
+		font-size: 0.95rem;
 	}
 
 	.members > li {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.75rem 1rem;
+		gap: 0.65rem 1rem;
 		align-items: center;
 		justify-content: space-between;
 	}
@@ -245,23 +323,23 @@
 	.who {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.45rem;
+		gap: 0.4rem;
 		align-items: baseline;
 		min-width: 12rem;
 	}
 
 	.email {
-		font-weight: 500;
+		font-weight: 550;
 	}
 
 	.you {
-		font-size: 0.78rem;
+		font-size: 0.72rem;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
 	}
 
 	.role-label {
-		font-size: 0.9rem;
+		font-size: 0.88rem;
 		color: var(--muted);
 		text-transform: capitalize;
 	}
@@ -269,37 +347,51 @@
 	.controls {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.55rem;
+		gap: 0.5rem;
 		align-items: center;
 	}
 
 	.controls select {
 		width: auto;
-		min-width: 7.5rem;
+		min-width: 7rem;
 	}
 
 	.create {
-		margin-top: 1.35rem;
+		margin-top: 1.15rem;
 	}
 
 	h3 {
-		margin: 0 0 0.35rem;
-		font-size: 0.95rem;
+		margin: 0 0 0.3rem;
+		font-size: 0.92rem;
+		font-weight: 650;
 	}
 
 	.hint {
-		margin: 0 0 0.85rem;
-		font-size: 0.9rem;
+		margin: 0 0 0.75rem;
+		font-size: 0.88rem;
 	}
 
 	.fields {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-		gap: 0.85rem;
-		margin-bottom: 0.95rem;
+		gap: 0.75rem;
+		margin-bottom: 0.85rem;
+	}
+
+	.invite-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.55rem;
+		align-items: center;
+	}
+
+	.link {
+		font-size: 0.78rem;
+		word-break: break-all;
+		max-width: 100%;
 	}
 
 	.note {
-		margin-top: 1.25rem;
+		margin-top: 1.1rem;
 	}
 </style>

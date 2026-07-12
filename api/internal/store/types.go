@@ -78,6 +78,10 @@ type Store interface {
 	ListMembers(teamSlug string) ([]TeamMember, error)
 	CountOwners(teamID string) int
 
+	CreateInvite(teamID, createdBy, role string, ttl time.Duration) (*TeamInvite, error)
+	InviteByToken(token string) (*TeamInvite, *Team, error)
+	AcceptInvite(token, userID string) (*TeamMember, error)
+
 	EnsureSuite(teamSlug, suiteSlug, name string) (*Suite, error)
 	ListSuites(teamSlug string) []Suite
 	EnsureBatch(suite *Suite, slug string) *Batch

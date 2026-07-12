@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { createTeam, listTeams, slugify, type Team } from '$lib/api';
+	import ErrorBanner from '$lib/ErrorBanner.svelte';
+	import Skeleton from '$lib/Skeleton.svelte';
 	import { isLoggedIn } from '$lib/auth';
 	import { goto } from '$app/navigation';
 
@@ -19,7 +21,7 @@
 			error = '';
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
-			if (error.includes('401') || error.includes('authentication')) {
+			if (error.includes('401') || error.toLowerCase().includes('authentication')) {
 				goto('/login');
 			}
 		} finally {
@@ -60,33 +62,31 @@
 	}
 </script>
 
-<section class="hero">
-	<p class="eyebrow">continuous regression testing</p>
-	<h1>Establish a trusted reading of your software.</h1>
-	<p class="lead">
-		Create a team, add a suite, then submit behavior from the Go SDK. The first revision becomes your
-		baseline.
+<section class="intro">
+	<h1 class="brand-font">Teams</h1>
+	<p class="muted lead">
+		Pick a team to browse suites and baselines, or create one — you’ll be owner.
 	</p>
 </section>
 
 <section class="panel">
 	<div class="panel-head">
-		<h2>Teams</h2>
+		<h2>Your teams</h2>
 		{#if loading}<span class="muted">loading…</span>{/if}
 	</div>
 
 	{#if error}
-		<p class="error">
-			{error}. If you are not signed in, <a href="/login">log in</a>.
-		</p>
-	{:else if teams.length === 0 && !loading}
+		<ErrorBanner message={error} onretry={load} />
+	{:else if loading}
+		<Skeleton lines={3} title={false} />
+	{:else if teams.length === 0}
 		<p class="empty muted">No teams yet. Create one to get started.</p>
 	{:else}
 		<ul class="list-card teams">
 			{#each teams as team, i}
 				<li style={`--i: ${i}`}>
 					<a href={`/t/${team.slug}`}>{team.name}</a>
-					<span class="muted">/{team.slug}</span>
+					<span class="muted mono">/{team.slug}</span>
 				</li>
 			{/each}
 		</ul>
@@ -115,50 +115,41 @@
 </section>
 
 <style>
-	.hero {
-		margin-bottom: 2.75rem;
-	}
-
-	.eyebrow {
-		margin: 0 0 0.85rem;
-		text-transform: uppercase;
-		letter-spacing: 0.14em;
-		font-size: 0.72rem;
-		color: var(--accent);
+	.intro {
+		margin-bottom: 1.35rem;
 	}
 
 	h1 {
 		margin: 0;
-		max-width: 14ch;
-		font-size: clamp(2.4rem, 7vw, 4.1rem);
-		line-height: 0.96;
-		letter-spacing: -0.05em;
+		font-size: clamp(1.85rem, 4vw, 2.4rem);
 	}
 
 	.lead {
-		max-width: 38rem;
-		margin: 1.35rem 0 0;
-		color: var(--muted);
-		font-size: 1.12rem;
-		line-height: 1.55;
+		margin: 0.45rem 0 0;
+		max-width: 36rem;
+		font-size: 1rem;
+		color: var(--body);
+		line-height: 1.5;
 	}
 
 	.panel-head {
 		display: flex;
 		justify-content: space-between;
 		align-items: baseline;
-		margin-bottom: 1rem;
+		margin-bottom: 0.85rem;
 	}
 
 	h2 {
 		margin: 0;
-		font-size: 1.1rem;
-		letter-spacing: -0.02em;
+		font-size: 1rem;
+		font-weight: 650;
+		letter-spacing: -0.015em;
 	}
 
 	h3 {
-		margin: 0 0 0.85rem;
-		font-size: 0.95rem;
+		margin: 0 0 0.75rem;
+		font-size: 0.9rem;
+		font-weight: 650;
 	}
 
 	.teams {
@@ -166,8 +157,8 @@
 	}
 
 	.teams > li {
-		animation: rise 420ms var(--ease) both;
-		animation-delay: calc(var(--i) * 45ms);
+		animation: rise 360ms var(--ease) both;
+		animation-delay: calc(var(--i) * 40ms);
 	}
 
 	.empty {
@@ -175,15 +166,15 @@
 	}
 
 	.create {
-		margin-top: 1.4rem;
-		padding-top: 1.25rem;
-		border-top: 1px solid var(--line);
+		margin-top: 1.15rem;
+		padding-top: 1.05rem;
+		border-top: 1px solid var(--hairline);
 	}
 
 	.fields {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-		gap: 0.85rem;
-		margin-bottom: 0.95rem;
+		gap: 0.75rem;
+		margin-bottom: 0.85rem;
 	}
 </style>

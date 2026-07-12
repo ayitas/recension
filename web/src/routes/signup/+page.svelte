@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { signup } from '$lib/api';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import { isLoggedIn } from '$lib/auth';
 
 	let email = $state('');
@@ -8,8 +9,10 @@
 	let error = $state('');
 	let loading = $state(false);
 
+	const next = $derived($page.url.searchParams.get('next') || '/account');
+
 	$effect(() => {
-		if (isLoggedIn()) goto('/');
+		if (isLoggedIn()) goto(next);
 	});
 
 	async function onSubmit(e: Event) {
@@ -18,7 +21,7 @@
 		error = '';
 		try {
 			await signup(email, password);
-			goto('/account');
+			goto(next);
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -29,8 +32,8 @@
 
 <section class="panel auth">
 	<p class="eyebrow">get started</p>
-	<h1>Sign up</h1>
-	<p class="muted">Create an account to browse results and manage your API key.</p>
+	<h1 class="brand-font">Sign up</h1>
+	<p class="lead">Create an account to browse results and manage your API key.</p>
 	<form onsubmit={onSubmit}>
 		<label>
 			Email
@@ -50,7 +53,8 @@
 		<button type="submit" disabled={loading}>{loading ? 'Creating…' : 'Create account'}</button>
 	</form>
 	<p class="muted switch">
-		Already have an account? <a href="/login">Log in</a>
+		Already have an account?
+		<a href={`/login${next !== '/account' ? `?next=${encodeURIComponent(next)}` : ''}`}>Log in</a>
 	</p>
 </section>
 
@@ -62,29 +66,37 @@
 	.eyebrow {
 		margin: 0 0 0.55rem;
 		text-transform: uppercase;
-		letter-spacing: 0.12em;
-		font-size: 0.7rem;
+		letter-spacing: 0.1em;
+		font-size: 0.75rem;
+		font-weight: 600;
 		color: var(--accent);
 	}
 
 	h1 {
 		margin: 0 0 0.35rem;
-		letter-spacing: -0.035em;
+		font-size: clamp(2rem, 5vw, 2.5rem);
+	}
+
+	.lead {
+		margin: 0;
+		color: var(--body);
+		font-size: 1rem;
+		line-height: 1.5;
 	}
 
 	form {
 		display: grid;
 		gap: 0.95rem;
-		margin-top: 1.35rem;
+		margin-top: 1.5rem;
 	}
 
 	.switch {
 		margin: 1.15rem 0 0;
-		font-size: 0.92rem;
+		font-size: 0.9375rem;
 	}
 
 	.switch a {
 		color: var(--accent);
-		border-bottom: 1px solid rgba(15, 92, 76, 0.3);
+		font-weight: 600;
 	}
 </style>

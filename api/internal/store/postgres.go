@@ -2,15 +2,17 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/ayitas/recension/pkg/message"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/ayitas/recension/pkg/message"
 )
 
 //go:embed migrate.sql
@@ -60,7 +62,7 @@ func (p *Postgres) migrate(ctx context.Context) error {
 	if _, err := tx.Exec(ctx, string(sqlBytes)); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
-	for _, version := range []string{"001_init", "002_tenancy"} {
+	for _, version := range []string{"001_init", "002_tenancy", "003_invites"} {
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO schema_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING`,
 			version,
@@ -388,6 +390,88 @@ func (p *Postgres) ListMembers(teamSlug string) ([]TeamMember, error) {
 		out = append(out, m)
 	}
 	return out, nil
+}
+
+func (p *Postgres) CreateInvite(teamID, createdBy, role string, ttl time.Duration) (*TeamInvite, error) {
+	if !ValidRole(role) {
+		return nil, fmt.Errorf("invalid role %q", role)
+	}
+	if ttl <= 0 {
+		ttl = 7 * 24 * time.Hour
+	}
+	token, err := randomToken(24)
+	if err != nil {
+		return nil, err
+	}
+	inv := &TeamInvite{
+		ID:        uuid.NewString(),
+		TeamID:    teamID,
+		Token:     token,
+		Role:      role,
+		CreatedBy: createdBy,
+		ExpiresAt: time.Now().UTC().Add(ttl),
+	}
+	ctx := context.Background()
+	_, err = p.pool.Exec(ctx, `
+		INSERT INTO team_invites (id, team_id, token, role, created_by, expires_at)
+		VALUES ($1, $2::uuid, $3, $4, $5::uuid, $6)`,
+		inv.ID, inv.TeamID, inv.Token, inv.Role, inv.CreatedBy, inv.ExpiresAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return inv, nil
+}
+
+func (p *Postgres) InviteByToken(token string) (*TeamInvite, *Team, error) {
+	ctx := context.Background()
+	var inv TeamInvite
+	var team Team
+	var accepted *time.Time
+	err := p.pool.QueryRow(ctx, `
+		SELECT i.id::text, i.team_id::text, i.token, i.role, i.created_by::text, i.expires_at, i.accepted_at,
+		       t.id::text, t.slug, t.name
+		FROM team_invites i
+		JOIN teams t ON t.id = i.team_id
+		WHERE i.token = $1`, token,
+	).Scan(&inv.ID, &inv.TeamID, &inv.Token, &inv.Role, &inv.CreatedBy, &inv.ExpiresAt, &accepted,
+		&team.ID, &team.Slug, &team.Name)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invite not found")
+	}
+	inv.AcceptedAt = accepted
+	return &inv, &team, nil
+}
+
+func (p *Postgres) AcceptInvite(token, userID string) (*TeamMember, error) {
+	inv, team, err := p.InviteByToken(token)
+	if err != nil {
+		return nil, err
+	}
+	if inv.AcceptedAt != nil || time.Now().UTC().After(inv.ExpiresAt) {
+		return nil, ErrInviteExpired
+	}
+	if err := p.AddMember(inv.TeamID, userID, inv.Role); err != nil {
+		return nil, err
+	}
+	ctx := context.Background()
+	now := time.Now().UTC()
+	_, _ = p.pool.Exec(ctx, `UPDATE team_invites SET accepted_at = $1 WHERE token = $2`, now, token)
+	u, ok := p.UserByID(userID)
+	email := ""
+	if ok {
+		email = u.Email
+	}
+	_ = team
+	return &TeamMember{UserID: userID, Email: email, Role: inv.Role}, nil
+}
+
+func randomToken(nBytes int) (string, error) {
+	b := make([]byte, nBytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 func (p *Postgres) EnsureSuite(teamSlug, suiteSlug, name string) (*Suite, error) {

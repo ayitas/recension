@@ -33,51 +33,62 @@
 
 <section class="setup">
 	<div class="head">
-		<h3>Submit your first version</h3>
-		<button type="button" onclick={copy}>{copied ? 'Copied' : 'Copy'}</button>
+		<div>
+			<span class="tab">shell</span>
+			<h3>Submit your first version</h3>
+		</div>
+		<button type="button" class="ghost" onclick={copy}>{copied ? 'Copied' : 'Copy'}</button>
 	</div>
 	<p class="muted">
 		Run this with the Go example (or your own workflow). The first revision becomes the baseline.
 	</p>
-	<pre>{snippet}</pre>
+	<pre class="code-well">{snippet}</pre>
 </section>
 
 <style>
 	.setup {
-		background: var(--card);
-		border: 1px solid var(--line);
-		box-shadow: var(--shadow-soft);
-		border-radius: calc(var(--radius) + 0.15rem);
-		padding: 1.15rem 1.3rem;
+		background: var(--bone);
+		border: 1px solid var(--hairline);
+		border-radius: var(--radius-md);
+		padding: 1.5rem;
 		margin-top: 1rem;
 	}
+
 	.head {
 		display: flex;
 		justify-content: space-between;
-		align-items: center;
+		align-items: flex-start;
 		gap: 1rem;
 		margin-bottom: 0.45rem;
 	}
+
+	.tab {
+		display: inline-block;
+		font-family: var(--font-mono);
+		font-size: 0.6875rem;
+		color: var(--on-dark-mute);
+		background: var(--surface-deep);
+		padding: 0.375rem 0.75rem;
+		border-radius: var(--radius-xs);
+		margin-bottom: 0.55rem;
+	}
+
 	h3 {
 		margin: 0;
-		font-size: 1rem;
-		letter-spacing: -0.02em;
+		font-family: var(--font-brand);
+		font-size: 1.15rem;
+		letter-spacing: -0.03em;
+		font-weight: 600;
 	}
+
 	.muted {
 		color: var(--muted);
-		margin: 0 0 0.9rem;
-		font-size: 0.92rem;
-		line-height: 1.45;
+		margin: 0 0 1rem;
+		font-size: 0.9375rem;
+		line-height: 1.5;
 	}
+
 	pre {
 		margin: 0;
-		padding: 0.95rem 1.05rem;
-		background: #1c1915;
-		color: #f3efe6;
-		overflow-x: auto;
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-		font-size: 0.82rem;
-		line-height: 1.5;
-		border-radius: var(--radius);
 	}
 </style>

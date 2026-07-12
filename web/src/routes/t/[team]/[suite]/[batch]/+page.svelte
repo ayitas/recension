@@ -1,10 +1,15 @@
 <script lang="ts">
 	import { getBatch, promoteBatch, type BatchDetail } from '$lib/api';
+	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
+	import ErrorBanner from '$lib/ErrorBanner.svelte';
+	import Skeleton from '$lib/Skeleton.svelte';
 	import { page } from '$app/stores';
 
 	let detail = $state<BatchDetail | null>(null);
 	let error = $state('');
+	let loading = $state(true);
 	let promoting = $state(false);
+	let confirmOpen = $state(false);
 
 	const team = $derived($page.params.team ?? '');
 	const suite = $derived($page.params.suite ?? '');
@@ -12,11 +17,15 @@
 
 	async function load() {
 		if (!team || !suite || !batch) return;
+		loading = true;
 		try {
 			detail = await getBatch(team, suite, batch);
 			error = '';
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
+			detail = null;
+		} finally {
+			loading = false;
 		}
 	}
 
@@ -24,7 +33,7 @@
 		void load();
 	});
 
-	async function onPromote() {
+	async function doPromote() {
 		promoting = true;
 		try {
 			await promoteBatch(team, suite, batch);
@@ -45,19 +54,25 @@
 </p>
 
 <div class="title-row">
-	<h1>{batch}</h1>
+	<h1 class="brand-font">{batch}</h1>
 	{#if detail}
-		<button onclick={onPromote} disabled={promoting || detail.baselineBatchId === detail.batch.id}>
+		<button
+			type="button"
+			onclick={() => (confirmOpen = true)}
+			disabled={promoting || detail.baselineBatchId === detail.batch.id}
+		>
 			{detail.baselineBatchId === detail.batch.id ? 'Current baseline' : 'Promote baseline'}
 		</button>
 	{/if}
 </div>
 
 {#if error}
-	<p class="error">{error}</p>
+	<ErrorBanner message={error} onretry={load} />
 {/if}
 
-{#if detail}
+{#if loading && !detail}
+	<Skeleton lines={4} />
+{:else if detail}
 	<p class="meta muted">
 		{detail.elements.length} testcases
 		{#if detail.baselineBatchId === detail.batch.id}
@@ -65,53 +80,67 @@
 		{/if}
 	</p>
 
-	<table class="data-table">
-		<thead>
-			<tr>
-				<th>Testcase</th>
-				<th>Verdict</th>
-				<th>Score</th>
-			</tr>
-		</thead>
-		<tbody>
-			{#each detail.elements as el}
+	<div class="table-scroll">
+		<table class="data-table">
+			<thead>
 				<tr>
-					<td>
-						<a href={`/t/${team}/${suite}/${batch}/e/${encodeURIComponent(el.testcase)}`}>
-							{el.testcase}
-						</a>
-					</td>
-					<td><span class={`verdict ${el.verdict}`}>{el.verdict}</span></td>
-					<td class="score">{(el.score ?? 0).toFixed(3)}</td>
+					<th>Testcase</th>
+					<th>Verdict</th>
+					<th>Score</th>
 				</tr>
-			{/each}
-		</tbody>
-	</table>
+			</thead>
+			<tbody>
+				{#each detail.elements as el}
+					<tr>
+						<td>
+							<a href={`/t/${team}/${suite}/${batch}/e/${encodeURIComponent(el.testcase)}`}>
+								{el.testcase}
+							</a>
+						</td>
+						<td><span class={`verdict ${el.verdict}`}>{el.verdict}</span></td>
+						<td class="score mono">{(el.score ?? 0).toFixed(3)}</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	</div>
 {/if}
+
+<ConfirmDialog
+	bind:open={confirmOpen}
+	title="Promote baseline?"
+	confirmLabel="Promote"
+	busy={promoting}
+	onconfirm={doPromote}
+>
+	<p>
+		Make <strong class="mono">{batch}</strong> the suite baseline. Future submits will compare against
+		this revision.
+	</p>
+</ConfirmDialog>
 
 <style>
 	.title-row {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 1rem;
+		gap: 0.75rem 1rem;
 		align-items: center;
 		justify-content: space-between;
-		margin-bottom: 0.75rem;
+		margin-bottom: 0.55rem;
 	}
 
 	h1 {
 		margin: 0;
-		letter-spacing: -0.04em;
-		font-size: clamp(1.9rem, 4vw, 2.6rem);
+		letter-spacing: -0.035em;
+		font-size: clamp(1.65rem, 3.5vw, 2.2rem);
 	}
 
 	.meta {
-		margin: 0 0 1.25rem;
+		margin: 0 0 0.95rem;
+		font-size: 0.9rem;
 	}
 
 	.score {
-		font-variant-numeric: tabular-nums;
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-		font-size: 0.9rem;
+		font-size: 0.88rem;
 	}
 </style>
