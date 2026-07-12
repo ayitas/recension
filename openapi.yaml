@@ -37,7 +37,7 @@ tags:
 - name: Client
   description: SDK verify, submit, seal
 - name: Blobs
-  description: Content-addressed binary artifacts (MinIO)
+  description: Content-addressed binary artifacts (S3-compatible store)
 - name: Teams
   description: Teams and suites (dashboard)
 - name: Batches

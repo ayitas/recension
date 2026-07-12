@@ -39,7 +39,7 @@ See also [`docs/why-recension.md`](docs/why-recension.md).
 | SDK | Go (`github.com/ayitas/recension/sdk/go`) |
 | Web | SvelteKit / Svelte **5**, Node **22** |
 | Database | PostgreSQL **17.10** (Alpine) |
-| Object storage | MinIO (S3-compatible) |
+| Object storage | Any **S3-compatible** store (compose defaults to MinIO for local demos) |
 | Gateway | nginx **1.30-alpine** (`/` → web, `/v1` + `/healthz` → api) |
 | API contract | OpenAPI **3.2.0** — [`openapi.yaml`](openapi.yaml) |
 | Workspace | Go workspace (`go.work`) across `api`, `pkg`, `sdk/go`, examples |
@@ -177,7 +177,7 @@ Copy [`.env.example`](.env.example) → `.env` (`make env`). Key variables:
 | `RECENSION_ALLOW_SIGNUP` | Public signup (no email delivery) |
 | `RECENSION_CORS_ORIGINS` | CORS origins (`*` ok for local) |
 | `RECENSION_DATABASE_URL` | Postgres DSN |
-| `RECENSION_S3_*` | MinIO/S3 (empty endpoint disables blob APIs) |
+| `RECENSION_S3_*` | S3-compatible blob store (empty `RECENSION_S3_ENDPOINT` disables blob APIs) |
 | `RECENSION_API_URL` / `TEAM` / `SUITE` / `VERSION` | SDK / examples |
 
 ## HTTP API
@@ -268,7 +268,15 @@ make example-blobs REV=export-b
 make example-blobs REV=export-c BREAK=1
 ```
 
-**Blobs:** MinIO stores bit-identical binaries; compare is digest equality (not semantic PDF/image diff). Each revision is **sealed** after submit — reusing the same `REV` returns 409. Without `REV=…`, the Makefile uses a timestamp. Bootstrap seeds suite `exports` under `acme`; without bootstrap, create it in the dashboard first.
+**Blobs:** Object storage holds bit-identical binaries; compare is digest equality (not semantic PDF/image diff). Each revision is **sealed** after submit — reusing the same `REV` returns 409. Without `REV=…`, the Makefile uses a timestamp. Bootstrap seeds suite `exports` under `acme`; without bootstrap, create it in the dashboard first.
+
+### Object storage notes
+
+Compose starts **MinIO** as a convenient local S3 endpoint for blob demos. Recension itself talks the S3 API only (`RECENSION_S3_*`) — it does not embed the MinIO server.
+
+- **License:** MinIO server is **AGPLv3**. That is separate from Recension’s Apache-2.0 license. Review AGPL obligations (or use a commercial MinIO/AIStor license) before shipping MinIO in a proprietary/SaaS stack.
+- **Maintenance:** The community MinIO project has moved toward maintenance / commercial AIStor offerings. Prefer pinning a known image for local use; for production, plan on **AWS S3**, **Cloudflare R2**, **Garage**, **SeaweedFS**, or another S3-compatible backend you control.
+- **Optional:** Leave `RECENSION_S3_ENDPOINT` empty to disable blob APIs entirely (checks/metrics still work).
 
 | Run | Result |
 |-----|--------|
@@ -285,7 +293,7 @@ make test                 # pkg + sdk + api unit tests
 make check                # svelte-check
 make smoke                # smoke-hardening + smoke-blobs
 make smoke-hardening      # production defaults, auth, tenant isolation
-make smoke-blobs          # blob/MinIO path
+make smoke-blobs          # blob / S3 path
 ```
 
 ## Hardening notes
@@ -301,6 +309,12 @@ API keys are per-user and inherit that user's team roles. Cross-team access retu
 | owner | + grant/revoke owner; creating a team makes you owner |
 
 Bootstrap user is owner of seeded team `acme`. Signup creates a user with no teams until invited or they create one. From **Team → Members** (`/t/{team}/members`): add an existing user by email, change roles, or **create an invite link** (`/invite/{token}`) for someone who still needs an account.
+
+Other local-vs-production caveats:
+
+- Default secrets (`dev-api-key`, bootstrap password, session secret) are refused when `RECENSION_ENV=production`.
+- `RECENSION_ALLOW_SIGNUP=true` enables account creation **without email verification** — turn off on shared deployments.
+- Invite links are bearer tokens (no SMTP); treat them like secrets and rotate by creating a new invite.
 
 For shared deployments:
 
