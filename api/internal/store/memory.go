@@ -1,0 +1,549 @@
+package store
+
+import (
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/ayitas/recension/pkg/message"
+)
+
+// Memory is an in-memory store for tests / offline demos.
+type Memory struct {
+	mu sync.RWMutex
+
+	users       map[string]*User
+	usersByID   map[string]*User
+	teams       map[string]*Team
+	members     map[string]string // "teamID|userID" -> role
+	invites     map[string]*TeamInvite
+	suites      map[string]*Suite
+	batches     map[string]*Batch
+	elements    map[string]*Element
+	messages    map[string]*MessageRecord
+	msgByBE     map[string]string
+	comparisons map[string]*ComparisonRecord
+}
+
+func memberKey(teamID, userID string) string {
+	return teamID + "|" + userID
+}
+
+func NewMemory(bootstrapAPIKey, bootstrapPasswordHash string) *Memory {
+	m := &Memory{
+		users:       map[string]*User{},
+		usersByID:   map[string]*User{},
+		teams:       map[string]*Team{},
+		members:     map[string]string{},
+		invites:     map[string]*TeamInvite{},
+		suites:      map[string]*Suite{},
+		batches:     map[string]*Batch{},
+		elements:    map[string]*Element{},
+		messages:    map[string]*MessageRecord{},
+		msgByBE:     map[string]string{},
+		comparisons: map[string]*ComparisonRecord{},
+	}
+	u := &User{
+		ID:           uuid.NewString(),
+		Email:        "dev@recension.local",
+		APIKey:       bootstrapAPIKey,
+		PasswordHash: bootstrapPasswordHash,
+	}
+	m.users[u.APIKey] = u
+	m.usersByID[u.ID] = u
+
+	team := &Team{ID: uuid.NewString(), Slug: "acme", Name: "Acme"}
+	m.teams[team.Slug] = team
+	m.members[memberKey(team.ID, u.ID)] = RoleOwner
+	suite := &Suite{ID: uuid.NewString(), TeamID: team.ID, Slug: "students", Name: "Students"}
+	m.suites[team.Slug+"/"+suite.Slug] = suite
+	artifacts := &Suite{ID: uuid.NewString(), TeamID: team.ID, Slug: "artifacts", Name: "Artifacts"}
+	m.suites[team.Slug+"/"+artifacts.Slug] = artifacts
+	exports := &Suite{ID: uuid.NewString(), TeamID: team.ID, Slug: "exports", Name: "Exports"}
+	m.suites[team.Slug+"/"+exports.Slug] = exports
+	return m
+}
+
+func (m *Memory) UserByAPIKey(key string) (*User, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	u, ok := m.users[key]
+	return u, ok
+}
+
+func (m *Memory) UserByEmail(email string) (*User, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, u := range m.usersByID {
+		if strings.EqualFold(u.Email, email) {
+			return u, true
+		}
+	}
+	return nil, false
+}
+
+func (m *Memory) UserByID(id string) (*User, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	u, ok := m.usersByID[id]
+	return u, ok
+}
+
+func (m *Memory) CreateUser(email, passwordHash, apiKey string) (*User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.usersByID {
+		if strings.EqualFold(u.Email, email) {
+			return nil, fmt.Errorf("email already registered")
+		}
+	}
+	u := &User{
+		ID:           uuid.NewString(),
+		Email:        email,
+		APIKey:       apiKey,
+		PasswordHash: passwordHash,
+	}
+	m.users[u.APIKey] = u
+	m.usersByID[u.ID] = u
+	return u, nil
+}
+
+func (m *Memory) RotateAPIKey(userID, newKey string) (*User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.usersByID[userID]
+	if !ok {
+		return nil, fmt.Errorf("user not found")
+	}
+	delete(m.users, u.APIKey)
+	u.APIKey = newKey
+	m.users[newKey] = u
+	return u, nil
+}
+
+func (m *Memory) TeamBySlug(slug string) (*Team, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	t, ok := m.teams[slug]
+	if !ok {
+		return nil, false
+	}
+	cp := *t
+	return &cp, true
+}
+
+func (m *Memory) ListTeamsForUser(userID string) []Team {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := []Team{}
+	for _, t := range m.teams {
+		if _, ok := m.members[memberKey(t.ID, userID)]; ok {
+			out = append(out, *t)
+		}
+	}
+	return out
+}
+
+func (m *Memory) EnsureTeam(slug, name string) *Team {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if t, ok := m.teams[slug]; ok {
+		return t
+	}
+	if name == "" {
+		name = slug
+	}
+	t := &Team{ID: uuid.NewString(), Slug: slug, Name: name}
+	m.teams[slug] = t
+	return t
+}
+
+func (m *Memory) Membership(userID, teamSlug string) (string, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	team, ok := m.teams[teamSlug]
+	if !ok {
+		return "", false
+	}
+	role, ok := m.members[memberKey(team.ID, userID)]
+	return role, ok
+}
+
+func (m *Memory) AddMember(teamID, userID, role string) error {
+	if !ValidRole(role) {
+		return fmt.Errorf("invalid role %q", role)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.usersByID[userID]; !ok {
+		return fmt.Errorf("user not found")
+	}
+	found := false
+	for _, t := range m.teams {
+		if t.ID == teamID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("team not found")
+	}
+	m.members[memberKey(teamID, userID)] = role
+	return nil
+}
+
+func (m *Memory) CountOwners(teamID string) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	n := 0
+	prefix := teamID + "|"
+	for k, role := range m.members {
+		if strings.HasPrefix(k, prefix) && role == RoleOwner {
+			n++
+		}
+	}
+	return n
+}
+
+func (m *Memory) RemoveMember(teamID, userID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := memberKey(teamID, userID)
+	role, ok := m.members[key]
+	if !ok {
+		return ErrNotMember
+	}
+	if role == RoleOwner {
+		n := 0
+		prefix := teamID + "|"
+		for k, r := range m.members {
+			if strings.HasPrefix(k, prefix) && r == RoleOwner {
+				n++
+			}
+		}
+		if n <= 1 {
+			return ErrLastOwner
+		}
+	}
+	delete(m.members, key)
+	return nil
+}
+
+func (m *Memory) SetMemberRole(teamID, userID, role string) error {
+	if !ValidRole(role) {
+		return fmt.Errorf("invalid role %q", role)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := memberKey(teamID, userID)
+	current, ok := m.members[key]
+	if !ok {
+		return ErrNotMember
+	}
+	if current == RoleOwner && role != RoleOwner {
+		n := 0
+		prefix := teamID + "|"
+		for k, r := range m.members {
+			if strings.HasPrefix(k, prefix) && r == RoleOwner {
+				n++
+			}
+		}
+		if n <= 1 {
+			return ErrLastOwner
+		}
+	}
+	m.members[key] = role
+	return nil
+}
+
+func (m *Memory) ListMembers(teamSlug string) ([]TeamMember, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	team, ok := m.teams[teamSlug]
+	if !ok {
+		return nil, fmt.Errorf("team not found")
+	}
+	out := []TeamMember{}
+	prefix := team.ID + "|"
+	for k, role := range m.members {
+		if !strings.HasPrefix(k, prefix) {
+			continue
+		}
+		userID := strings.TrimPrefix(k, prefix)
+		u, ok := m.usersByID[userID]
+		if !ok {
+			continue
+		}
+		out = append(out, TeamMember{UserID: u.ID, Email: u.Email, Role: role})
+	}
+	return out, nil
+}
+
+func (m *Memory) CreateInvite(teamID, createdBy, role string, ttl time.Duration) (*TeamInvite, error) {
+	if !ValidRole(role) {
+		return nil, fmt.Errorf("invalid role %q", role)
+	}
+	if ttl <= 0 {
+		ttl = 7 * 24 * time.Hour
+	}
+	token := uuid.NewString() + uuid.NewString()
+	inv := &TeamInvite{
+		ID:        uuid.NewString(),
+		TeamID:    teamID,
+		Token:     token,
+		Role:      role,
+		CreatedBy: createdBy,
+		ExpiresAt: time.Now().UTC().Add(ttl),
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.invites[token] = inv
+	return inv, nil
+}
+
+func (m *Memory) InviteByToken(token string) (*TeamInvite, *Team, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	inv, ok := m.invites[token]
+	if !ok {
+		return nil, nil, fmt.Errorf("invite not found")
+	}
+	var team *Team
+	for _, t := range m.teams {
+		if t.ID == inv.TeamID {
+			cp := *t
+			team = &cp
+			break
+		}
+	}
+	if team == nil {
+		return nil, nil, fmt.Errorf("team not found")
+	}
+	cp := *inv
+	return &cp, team, nil
+}
+
+func (m *Memory) AcceptInvite(token, userID string) (*TeamMember, error) {
+	inv, _, err := m.InviteByToken(token)
+	if err != nil {
+		return nil, err
+	}
+	if inv.AcceptedAt != nil || time.Now().UTC().After(inv.ExpiresAt) {
+		return nil, ErrInviteExpired
+	}
+	if err := m.AddMember(inv.TeamID, userID, inv.Role); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	now := time.Now().UTC()
+	if stored, ok := m.invites[token]; ok {
+		stored.AcceptedAt = &now
+	}
+	m.mu.Unlock()
+	u, _ := m.UserByID(userID)
+	email := ""
+	if u != nil {
+		email = u.Email
+	}
+	return &TeamMember{UserID: userID, Email: email, Role: inv.Role}, nil
+}
+
+func (m *Memory) EnsureSuite(teamSlug, suiteSlug, name string) (*Suite, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	team, ok := m.teams[teamSlug]
+	if !ok {
+		return nil, fmt.Errorf("team %q not found", teamSlug)
+	}
+	key := teamSlug + "/" + suiteSlug
+	if s, ok := m.suites[key]; ok {
+		return s, nil
+	}
+	if name == "" {
+		name = suiteSlug
+	}
+	s := &Suite{ID: uuid.NewString(), TeamID: team.ID, Slug: suiteSlug, Name: name}
+	m.suites[key] = s
+	return s, nil
+}
+
+func (m *Memory) ListSuites(teamSlug string) []Suite {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	team, ok := m.teams[teamSlug]
+	if !ok {
+		return nil
+	}
+	out := []Suite{}
+	for _, s := range m.suites {
+		if s.TeamID == team.ID {
+			out = append(out, *s)
+		}
+	}
+	return out
+}
+
+func (m *Memory) EnsureBatch(suite *Suite, slug string) *Batch {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := suite.ID + "/" + slug
+	if b, ok := m.batches[key]; ok {
+		return b
+	}
+	b := &Batch{
+		ID:          uuid.NewString(),
+		SuiteID:     suite.ID,
+		Slug:        slug,
+		SubmittedAt: time.Now().UTC(),
+		Meta:        map[string]any{},
+	}
+	m.batches[key] = b
+	return b
+}
+
+func (m *Memory) ListBatches(teamSlug, suiteSlug string) []Batch {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	suite, ok := m.suites[teamSlug+"/"+suiteSlug]
+	if !ok {
+		return nil
+	}
+	out := []Batch{}
+	for _, b := range m.batches {
+		if b.SuiteID == suite.ID {
+			out = append(out, *b)
+		}
+	}
+	return out
+}
+
+func (m *Memory) GetBatch(teamSlug, suiteSlug, batchSlug string) (*Batch, *Suite, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	suite, ok := m.suites[teamSlug+"/"+suiteSlug]
+	if !ok {
+		return nil, nil, false
+	}
+	b, ok := m.batches[suite.ID+"/"+batchSlug]
+	return b, suite, ok
+}
+
+func (m *Memory) EnsureElement(suite *Suite, name string) *Element {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := suite.ID + "/" + name
+	if e, ok := m.elements[key]; ok {
+		return e
+	}
+	e := &Element{ID: uuid.NewString(), SuiteID: suite.ID, Name: name}
+	m.elements[key] = e
+	return e
+}
+
+func (m *Memory) PutMessage(batch *Batch, element *Element, msg message.Message) *MessageRecord {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rec := &MessageRecord{
+		ID:        uuid.NewString(),
+		BatchID:   batch.ID,
+		ElementID: element.ID,
+		BuiltAt:   msg.Metadata.BuiltAt,
+		Payload:   msg,
+	}
+	m.messages[rec.ID] = rec
+	m.msgByBE[batch.ID+"|"+element.ID] = rec.ID
+	return rec
+}
+
+func (m *Memory) MessageByBatchElement(batchID, elementID string) (*MessageRecord, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	id, ok := m.msgByBE[batchID+"|"+elementID]
+	if !ok {
+		return nil, false
+	}
+	rec, ok := m.messages[id]
+	return rec, ok
+}
+
+func (m *Memory) ListMessages(batchID string) []MessageRecord {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := []MessageRecord{}
+	for _, rec := range m.messages {
+		if rec.BatchID == batchID {
+			out = append(out, *rec)
+		}
+	}
+	return out
+}
+
+func (m *Memory) SaveComparison(rec ComparisonRecord) *ComparisonRecord {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if rec.ID == "" {
+		rec.ID = uuid.NewString()
+	}
+	cp := rec
+	m.comparisons[cp.ID] = &cp
+	return &cp
+}
+
+func (m *Memory) ComparisonsForBatch(batchID string) []ComparisonRecord {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := []ComparisonRecord{}
+	for _, c := range m.comparisons {
+		if c.SrcBatchID == batchID {
+			out = append(out, *c)
+		}
+	}
+	return out
+}
+
+func (m *Memory) SealBatch(batch *Batch) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now().UTC()
+	batch.SealedAt = &now
+}
+
+func (m *Memory) PromoteBaseline(suite *Suite, batch *Batch) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	suite.BaselineBatchID = batch.ID
+}
+
+func (m *Memory) BaselineBatch(suite *Suite) (*Batch, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if suite.BaselineBatchID == "" {
+		return nil, false
+	}
+	for _, b := range m.batches {
+		if b.ID == suite.BaselineBatchID {
+			return b, true
+		}
+	}
+	return nil, false
+}
+
+func (m *Memory) ElementByID(id string) (*Element, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, e := range m.elements {
+		if e.ID == id {
+			return e, true
+		}
+	}
+	return nil, false
+}
+
+func (m *Memory) MessageByID(id string) (*MessageRecord, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	rec, ok := m.messages[id]
+	return rec, ok
+}

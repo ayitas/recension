@@ -1,0 +1,1384 @@
+---
+openapi: 3.2.0
+info:
+  title: Recension API
+  summary: Continuous behavioral regression testing
+  description: |-
+    HTTP API for Recension: SDK clients submit versioned testcase captures; the dashboard authenticates with session tokens to browse teams, suites, batches, and promote baselines.
+
+    **Auth**
+    - Dashboard (session): `Authorization: Bearer <token>` (default TTL 7 days / `RECENSION_SESSION_TTL`)
+    - SDK / client: `X-Recension-API-Key: <key>` (per-user; inherits team memberships)
+
+    **Tenancy / RBAC**
+    - Users access teams only via membership roles: `owner` | `admin` | `member` | `viewer`
+    - viewer: read; member: + submit/seal; admin: + create suites, promote, manage members; owner: + grant owner
+    - Cross-team access returns 404 (does not leak existence)
+    - Creating a team makes the creator `owner`; bootstrap user owns seeded team `acme`
+
+    **Hierarchy:** team → suite → batch (version/revision) → element (testcase)
+  version: 0.1.0
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+  contact:
+    name: ayitas/recension
+    url: https://github.com/ayitas/recension
+servers:
+- url: http://localhost:8080
+  description: Local API (direct)
+- url: http://localhost:3000
+  description: Local gateway (nginx proxies /v1 and /healthz)
+tags:
+- name: Health
+  description: Liveness
+- name: Auth
+  description: Dashboard signup, login, session, API key
+- name: Client
+  description: SDK verify, submit, seal
+- name: Blobs
+  description: Content-addressed binary artifacts (S3-compatible store)
+- name: Teams
+  description: Teams and suites (dashboard)
+- name: Batches
+  description: Version batches, elements, promote (dashboard)
+paths:
+  "/healthz":
+    get:
+      tags:
+      - Health
+      operationId: getHealthz
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+  "/v1/auth/signup":
+    post:
+      tags:
+      - Auth
+      operationId: signup
+      summary: Create account
+      description: Disabled when `RECENSION_ALLOW_SIGNUP=false`. Rate-limited.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/AuthRequest"
+      responses:
+        '200':
+          description: Session issued
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/SessionResponse"
+        '400':
+          "$ref": "#/components/responses/Error"
+        '403':
+          "$ref": "#/components/responses/Error"
+        '409':
+          "$ref": "#/components/responses/Error"
+        '429':
+          "$ref": "#/components/responses/Error"
+  "/v1/auth/login":
+    post:
+      tags:
+      - Auth
+      operationId: login
+      summary: Log in
+      description: Rate-limited. Returns a signed session token (HMAC, not standard
+        JWT library; same Bearer usage).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/AuthRequest"
+      responses:
+        '200':
+          description: Session issued
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/SessionResponse"
+        '400':
+          "$ref": "#/components/responses/Error"
+        '401':
+          "$ref": "#/components/responses/Error"
+        '429':
+          "$ref": "#/components/responses/Error"
+  "/v1/auth/me":
+    get:
+      tags:
+      - Auth
+      operationId: getMe
+      summary: Current user
+      security:
+      - SessionBearer: []
+      responses:
+        '200':
+          description: Authenticated user (includes API key)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/User"
+        '401':
+          "$ref": "#/components/responses/Error"
+  "/v1/auth/api-key/rotate":
+    post:
+      tags:
+      - Auth
+      operationId: rotateApiKey
+      summary: Rotate API key
+      security:
+      - SessionBearer: []
+      responses:
+        '200':
+          description: User with new API key
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/User"
+        '400':
+          "$ref": "#/components/responses/Error"
+        '401':
+          "$ref": "#/components/responses/Error"
+  "/v1/client/verify":
+    post:
+      tags:
+      - Client
+      operationId: clientVerify
+      summary: Verify API key
+      security:
+      - ApiKey: []
+      responses:
+        '204':
+          description: API key is valid
+        '401':
+          "$ref": "#/components/responses/Error"
+  "/v1/client/submit":
+    post:
+      tags:
+      - Client
+      operationId: clientSubmit
+      summary: Submit testcase captures
+      description: Team/suite must already exist. Sealed batches reject further submits
+        (409). Body size limited by `RECENSION_MAX_BODY_BYTES` (default 8 MiB).
+      security:
+      - ApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/Envelope"
+      responses:
+        '200':
+          description: Per-testcase outcomes vs baseline
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/SubmitResponse"
+        '400':
+          "$ref": "#/components/responses/Error"
+        '401':
+          "$ref": "#/components/responses/Error"
+        '404':
+          "$ref": "#/components/responses/Error"
+        '409':
+          "$ref": "#/components/responses/Error"
+        '413':
+          "$ref": "#/components/responses/Error"
+  "/v1/blobs/{digest}":
+    parameters:
+    - name: digest
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^sha256:[0-9a-f]{64}$"
+        description: Content-addressed digest
+    put:
+      tags:
+      - Blobs
+      operationId: putBlob
+      summary: Upload blob by digest
+      description: Body bytes must hash to the path `digest` (`sha256:<64 hex>`).
+        Optional MIME via `Content-Type` or `X-Recension-Mime`. Size limited by `RECENSION_MAX_BLOB_BYTES`
+        (default 64 MiB).
+      security:
+      - ApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+          "*/*":
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Stored
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/BlobPutResponse"
+        '400':
+          "$ref": "#/components/responses/Error"
+        '401':
+          "$ref": "#/components/responses/Error"
+        '413':
+          "$ref": "#/components/responses/Error"
+        '500':
+          "$ref": "#/components/responses/Error"
+        '503':
+          "$ref": "#/components/responses/Error"
+      parameters:
+      - name: X-Recension-Mime
+        in: header
+        required: false
+        schema:
+          type: string
+        description: Used when Content-Type is missing or application/octet-stream
+    head:
+      tags:
+      - Blobs
+      operationId: headBlob
+      summary: Check blob exists
+      security:
+      - ApiKey: []
+      - SessionBearer: []
+      responses:
+        '204':
+          description: Blob exists
+        '400':
+          "$ref": "#/components/responses/Error"
+        '401':
+          "$ref": "#/components/responses/Error"
+        '404':
+          description: Not found
+        '503':
+          "$ref": "#/components/responses/Error"
+    get:
+      tags:
+      - Blobs
+      operationId: getBlob
+      summary: Download blob
+      security:
+      - ApiKey: []
+      - SessionBearer: []
+      responses:
+        '200':
+          description: Blob body
+          headers:
+            Content-Type:
+              schema:
+                type: string
+            Content-Length:
+              schema:
+                type: integer
+            X-Recension-Digest:
+              schema:
+                type: string
+              description: Echo of the requested digest
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        '401':
+          "$ref": "#/components/responses/Error"
+        '404':
+          "$ref": "#/components/responses/Error"
+        '503':
+          "$ref": "#/components/responses/Error"
+  "/v1/batch/{team}/{suite}/{batch}/seal":
+    parameters:
+    - name: team
+      in: path
+      required: true
+      schema:
+        "$ref": "#/components/schemas/Slug"
+      description: Team slug
+    - name: suite
+      in: path
+      required: true
+      schema:
+        "$ref": "#/components/schemas/Slug"
+      description: Suite slug
+    - name: batch
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        description: Batch slug = SDK version/revision
+    post:
+      tags:
+      - Client
+      operationId: sealBatch
+      summary: Seal a batch
+      description: Prevents further submits to this version/revision.
+      security:
+      - ApiKey: []
+      responses:
+        '204':
+          description: Sealed
+        '401':
+          "$ref": "#/components/responses/Error"
+        '404':
+          "$ref": "#/components/responses/Error"
+  "/v1/batch/{team}/{suite}/{batch}/promote":
+    parameters:
+    - name: team
+      in: path
+      required: true
+      schema:
+        "$ref": "#/components/schemas/Slug"
+      description: Team slug
+    - name: suite
+      in: path
+      required: true
+      schema:
+        "$ref": "#/components/schemas/Slug"
+      description: Suite slug
+    - name: batch
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        description: Batch slug = SDK version/revision
+    post:
+      tags:
+      - Batches
+      operationId: promoteBatch
+      summary: Promote batch as suite baseline (admin+)
+      security:
+      - SessionBearer: []
+      responses:
+        '204':
+          description: Promoted
+        '401':
+          "$ref": "#/components/responses/Error"
+        '404':
+          "$ref": "#/components/responses/Error"
+  "/v1/teams":
+    get:
+      tags:
+      - Teams
+      operationId: listTeams
+      summary: List teams the current user belongs to
+      security:
+      - SessionBearer: []
+      responses:
+        '200':
+          description: Teams
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/Team"
+        '401':
+          "$ref": "#/components/responses/Error"
+    post:
+      tags:
+      - Teams
+      operationId: createTeam
+      summary: Create team (caller becomes owner)
+      security:
+      - SessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/EntityRequest"
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Team"
+        '400':
+          "$ref": "#/components/responses/Error"
+        '401':
+          "$ref": "#/components/responses/Error"
+        '409':
+          "$ref": "#/components/responses/Error"
+  "/v1/teams/{team}/members":
+    parameters:
+    - name: team
+      in: path
+      required: true
+      schema:
+        "$ref": "#/components/schemas/Slug"
+      description: Team slug
+    get:
+      tags:
+      - Teams
+      operationId: listMembers
+      summary: List team members (viewer+)
+      security:
+      - SessionBearer: []
+      responses:
+        '200':
+          description: Members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/TeamMember"
+        '401':
+          "$ref": "#/components/responses/Error"
+        '404':
+          "$ref": "#/components/responses/Error"
+    post:
+      tags:
+      - Teams
+      operationId: addMember
+      summary: Add or update a team member (admin+)
+      security:
+      - SessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/MemberRequest"
+      responses:
+        '201':
+          description: Member added
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/TeamMember"
+        '400':
+          "$ref": "#/components/responses/Error"
+        '401':
+          "$ref": "#/components/responses/Error"
+        '403':
+          "$ref": "#/components/responses/Error"
+        '404':
+          "$ref": "#/components/responses/Error"
+  "/v1/teams/{team}/members/{userId}":
+    parameters:
+    - name: team
+      in: path
+      required: true
+      schema:
+        "$ref": "#/components/schemas/Slug"
+    - name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    patch:
+      tags:
+      - Teams
+      operationId: updateMember
+      summary: Change a member's role (admin+)
+      security:
+      - SessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role:
+                  "$ref": "#/components/schemas/TeamRole"
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/TeamMember"
+        '400':
+          "$ref": "#/components/responses/Error"
+        '401':
+          "$ref": "#/components/responses/Error"
+        '403':
+          "$ref": "#/components/responses/Error"
+        '404':
+          "$ref": "#/components/responses/Error"
+        '409':
+          "$ref": "#/components/responses/Error"
+    delete:
+      tags:
+      - Teams
+      operationId: removeMember
+      summary: Remove a team member (admin+)
+      security:
+      - SessionBearer: []
+      responses:
+        '204':
+          description: Removed
+        '401':
+          "$ref": "#/components/responses/Error"
+        '403':
+          "$ref": "#/components/responses/Error"
+        '404':
+          "$ref": "#/components/responses/Error"
+        '409':
+          "$ref": "#/components/responses/Error"
+  "/v1/teams/{team}/suites":
+    parameters:
+    - name: team
+      in: path
+      required: true
+      schema:
+        "$ref": "#/components/schemas/Slug"
+      description: Team slug
+    get:
+      tags:
+      - Teams
+      operationId: listSuites
+      summary: List suites for a team (viewer+)
+      security:
+      - SessionBearer: []
+      responses:
+        '200':
+          description: Suites
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/Suite"
+        '401':
+          "$ref": "#/components/responses/Error"
+        '404':
+          "$ref": "#/components/responses/Error"
+    post:
+      tags:
+      - Teams
+      operationId: createSuite
+      summary: Create suite (admin+)
+      security:
+      - SessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/EntityRequest"
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Suite"
+        '400':
+          "$ref": "#/components/responses/Error"
+        '401':
+          "$ref": "#/components/responses/Error"
+        '404':
+          "$ref": "#/components/responses/Error"
+        '409':
+          "$ref": "#/components/responses/Error"
+  "/v1/teams/{team}/suites/{suite}/batches":
+    parameters:
+    - name: team
+      in: path
+      required: true
+      schema:
+        "$ref": "#/components/schemas/Slug"
+      description: Team slug
+    - name: suite
+      in: path
+      required: true
+      schema:
+        "$ref": "#/components/schemas/Slug"
+      description: Suite slug
+    get:
+      tags:
+      - Batches
+      operationId: listBatches
+      summary: List batches with summary counts
+      security:
+      - SessionBearer: []
+      responses:
+        '200':
+          description: Batch summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/BatchSummary"
+        '401':
+          "$ref": "#/components/responses/Error"
+  "/v1/teams/{team}/suites/{suite}/batches/{batch}":
+    parameters:
+    - name: team
+      in: path
+      required: true
+      schema:
+        "$ref": "#/components/schemas/Slug"
+      description: Team slug
+    - name: suite
+      in: path
+      required: true
+      schema:
+        "$ref": "#/components/schemas/Slug"
+      description: Suite slug
+    - name: batch
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        description: Batch slug = SDK version/revision
+    get:
+      tags:
+      - Batches
+      operationId: getBatch
+      summary: Get batch detail with elements
+      security:
+      - SessionBearer: []
+      responses:
+        '200':
+          description: Batch + element list
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/BatchDetail"
+        '401':
+          "$ref": "#/components/responses/Error"
+        '404':
+          "$ref": "#/components/responses/Error"
+  "/v1/teams/{team}/suites/{suite}/batches/{batch}/elements/{element}":
+    parameters:
+    - name: team
+      in: path
+      required: true
+      schema:
+        "$ref": "#/components/schemas/Slug"
+      description: Team slug
+    - name: suite
+      in: path
+      required: true
+      schema:
+        "$ref": "#/components/schemas/Slug"
+      description: Suite slug
+    - name: batch
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        description: Batch slug = SDK version/revision
+    - name: element
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+      description: Testcase name
+    get:
+      tags:
+      - Batches
+      operationId: getElement
+      summary: Get one testcase comparison detail (checks, asserts, metrics vs baseline)
+      description: |-
+        Returns the submitted message plus a comparison against the suite baseline
+        (or against another batch when `vs` is set).
+        `comparison.metrics` and overview `metricsCount*` / `metricsDuration*` power the
+        dashboard duration bars. Requires **viewer+** on the team.
+      parameters:
+      - name: vs
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Optional batch slug to compare against instead of the suite baseline
+      security:
+      - SessionBearer: []
+      responses:
+        '200':
+          description: Element message + comparison
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ElementDetail"
+        '401':
+          "$ref": "#/components/responses/Error"
+        '404':
+          "$ref": "#/components/responses/Error"
+  "/v1/teams/{team}/invites":
+    parameters:
+    - name: team
+      in: path
+      required: true
+      schema:
+        "$ref": "#/components/schemas/Slug"
+    post:
+      tags:
+      - Teams
+      operationId: createInvite
+      summary: Create a shareable invite link (admin+)
+      security:
+      - SessionBearer: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  "$ref": "#/components/schemas/TeamRole"
+      responses:
+        '201':
+          description: Invite created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, role, expiresAt, path]
+                properties:
+                  token:
+                    type: string
+                  role:
+                    "$ref": "#/components/schemas/TeamRole"
+                  expiresAt:
+                    type: string
+                    format: date-time
+                  path:
+                    type: string
+                    example: /invite/abc…
+        '401':
+          "$ref": "#/components/responses/Error"
+        '403':
+          "$ref": "#/components/responses/Error"
+        '404':
+          "$ref": "#/components/responses/Error"
+  "/v1/invites/{token}":
+    parameters:
+    - name: token
+      in: path
+      required: true
+      schema:
+        type: string
+    get:
+      tags:
+      - Teams
+      operationId: getInvite
+      summary: Peek invite metadata (public)
+      security: []
+      responses:
+        '200':
+          description: Invite info
+        '404':
+          "$ref": "#/components/responses/Error"
+  "/v1/invites/{token}/accept":
+    parameters:
+    - name: token
+      in: path
+      required: true
+      schema:
+        type: string
+    post:
+      tags:
+      - Teams
+      operationId: acceptInvite
+      summary: Accept invite and join team (session)
+      security:
+      - SessionBearer: []
+      responses:
+        '200':
+          description: Joined
+        '401':
+          "$ref": "#/components/responses/Error"
+        '410':
+          "$ref": "#/components/responses/Error"
+components:
+  securitySchemes:
+    SessionBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: HMAC session token
+      description: Dashboard session from login/signup. Default expiry 168h (`RECENSION_SESSION_TTL`).
+    ApiKey:
+      type: apiKey
+      in: header
+      name: X-Recension-API-Key
+      description: SDK / client key via `X-Recension-API-Key`.
+  responses:
+    Error:
+      description: Error envelope
+      content:
+        application/json:
+          schema:
+            "$ref": "#/components/schemas/ErrorBody"
+          example:
+            errors:
+            - invalid api key
+  schemas:
+    Slug:
+      type: string
+      minLength: 2
+      maxLength: 64
+      pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+      description: Lowercase letters, numbers, hyphens
+    ErrorBody:
+      type: object
+      required:
+      - errors
+      properties:
+        errors:
+          type: array
+          items:
+            type: string
+    HealthResponse:
+      type: object
+      required:
+      - status
+      properties:
+        status:
+          type: string
+          const: ok
+    AuthRequest:
+      type: object
+      required:
+      - email
+      - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          description: Minimum 8 characters (enforced on signup)
+    User:
+      type: object
+      required:
+      - id
+      - email
+      - apiKey
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        apiKey:
+          type: string
+    SessionResponse:
+      type: object
+      required:
+      - token
+      - expiresAt
+      - user
+      properties:
+        token:
+          type: string
+          description: Opaque HMAC session token for Authorization Bearer
+        expiresAt:
+          type: string
+          format: date-time
+        user:
+          "$ref": "#/components/schemas/User"
+    EntityRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        slug:
+          "$ref": "#/components/schemas/Slug"
+      description: Provide name and/or slug; missing slug is derived from name
+    Team:
+      type: object
+      required:
+      - id
+      - slug
+      - name
+      properties:
+        id:
+          type: string
+        slug:
+          "$ref": "#/components/schemas/Slug"
+        name:
+          type: string
+    TeamRole:
+      type: string
+      enum: [owner, admin, member, viewer]
+      description: Team membership role
+    TeamMember:
+      type: object
+      required: [userId, email, role]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        role:
+          "$ref": "#/components/schemas/TeamRole"
+    MemberRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+        role:
+          "$ref": "#/components/schemas/TeamRole"
+          default: member
+    Suite:
+      type: object
+      required:
+      - id
+      - teamId
+      - slug
+      - name
+      - baselineBatchId
+      properties:
+        id:
+          type: string
+        teamId:
+          type: string
+        slug:
+          "$ref": "#/components/schemas/Slug"
+        name:
+          type: string
+        baselineBatchId:
+          type: string
+          description: Empty until first submission or promote
+    Batch:
+      type: object
+      required:
+      - id
+      - suiteId
+      - slug
+      - submittedAt
+      - meta
+      properties:
+        id:
+          type: string
+        suiteId:
+          type: string
+        slug:
+          type: string
+        sealedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        submittedAt:
+          type: string
+          format: date-time
+        meta:
+          type: object
+          additionalProperties: true
+    BatchSummary:
+      type: object
+      required:
+      - id
+      - suiteId
+      - slug
+      - submittedAt
+      - meta
+      - testcaseCount
+      - passCount
+      - diffCount
+      - sentCount
+      - avgScore
+      - isBaseline
+      properties:
+        id:
+          type: string
+        suiteId:
+          type: string
+        slug:
+          type: string
+        submittedAt:
+          type: string
+          format: date-time
+        sealedAt:
+          type: string
+          format: date-time
+        meta:
+          type: object
+          additionalProperties: true
+        testcaseCount:
+          type: integer
+          minimum: 0
+        passCount:
+          type: integer
+          minimum: 0
+        diffCount:
+          type: integer
+          minimum: 0
+        sentCount:
+          type: integer
+          minimum: 0
+        avgScore:
+          type: number
+          minimum: 0
+          maximum: 1
+        isBaseline:
+          type: boolean
+    Verdict:
+      type: string
+      enum:
+      - sent
+      - pass
+      - diff
+      description: sent = baseline/self; pass = matches baseline; diff = behavioral
+        change
+    BatchElementItem:
+      type: object
+      required:
+      - testcase
+      - builtAt
+      - verdict
+      - score
+      properties:
+        testcase:
+          type: string
+        builtAt:
+          type: string
+          format: date-time
+        verdict:
+          "$ref": "#/components/schemas/Verdict"
+        score:
+          type: number
+        comparison:
+          "$ref": "#/components/schemas/ComparisonResult"
+    BatchDetail:
+      type: object
+      required:
+      - batch
+      - baselineBatchId
+      - elements
+      properties:
+        batch:
+          "$ref": "#/components/schemas/Batch"
+        baselineBatchId:
+          type: string
+        elements:
+          type: array
+          items:
+            "$ref": "#/components/schemas/BatchElementItem"
+    ElementDetail:
+      type: object
+      required:
+      - testcase
+      - verdict
+      - score
+      - batch
+      - baselineBatchId
+      - message
+      - comparison
+      properties:
+        testcase:
+          type: string
+        verdict:
+          "$ref": "#/components/schemas/Verdict"
+        score:
+          type: number
+        batch:
+          "$ref": "#/components/schemas/Batch"
+        baselineBatchId:
+          type: string
+        message:
+          "$ref": "#/components/schemas/Message"
+        comparison:
+          "$ref": "#/components/schemas/ComparisonResult"
+    BlobPutResponse:
+      type: object
+      required:
+      - digest
+      - size
+      - mime
+      properties:
+        digest:
+          type: string
+          pattern: "^sha256:[0-9a-f]{64}$"
+        size:
+          type: integer
+          minimum: 0
+        mime:
+          type: string
+    Outcome:
+      type: object
+      required:
+      - team
+      - suite
+      - version
+      - testcase
+      - verdict
+      - score
+      properties:
+        team:
+          type: string
+        suite:
+          type: string
+        version:
+          type: string
+        testcase:
+          type: string
+        verdict:
+          "$ref": "#/components/schemas/Verdict"
+        score:
+          type: number
+    SubmitResponse:
+      type: object
+      required:
+      - outcomes
+      properties:
+        outcomes:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Outcome"
+    Envelope:
+      type: object
+      required:
+      - version
+      - messages
+      properties:
+        version:
+          type: integer
+          const: 1
+          description: Wire format version
+        messages:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Message"
+    Message:
+      type: object
+      required:
+      - metadata
+      - results
+      - metrics
+      properties:
+        metadata:
+          "$ref": "#/components/schemas/Metadata"
+        results:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Result"
+        metrics:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Metric"
+    Metadata:
+      type: object
+      required:
+      - team
+      - suite
+      - version
+      - testcase
+      - builtAt
+      properties:
+        team:
+          type: string
+          minLength: 1
+        suite:
+          type: string
+          minLength: 1
+        version:
+          type: string
+          minLength: 1
+          description: Becomes the batch slug
+        testcase:
+          type: string
+          minLength: 1
+        builtAt:
+          type: string
+          format: date-time
+    Result:
+      type: object
+      required:
+      - key
+      - kind
+      - value
+      properties:
+        key:
+          type: string
+        kind:
+          type: string
+          enum:
+          - check
+          - assert
+          description: check is scored; assert (Assume) is not
+        value:
+          "$ref": "#/components/schemas/Value"
+        rule:
+          "$ref": "#/components/schemas/ComparisonRule"
+    Metric:
+      type: object
+      required:
+      - key
+      - value
+      properties:
+        key:
+          type: string
+        value:
+          type: integer
+          description: Duration in milliseconds
+    Value:
+      type: object
+      required:
+      - type
+      properties:
+        type:
+          type: string
+          enum:
+          - bool
+          - int
+          - uint
+          - float
+          - double
+          - string
+          - object
+          - array
+          - blob
+        bool:
+          type: boolean
+        int:
+          type: integer
+        uint:
+          type: integer
+          minimum: 0
+        float:
+          type: number
+        double:
+          type: number
+        string:
+          type: string
+        object:
+          type: object
+          additionalProperties:
+            "$ref": "#/components/schemas/Value"
+        array:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Value"
+        blob:
+          "$ref": "#/components/schemas/BlobRef"
+    BlobRef:
+      type: object
+      properties:
+        digest:
+          type: string
+          pattern: "^sha256:[0-9a-f]{64}$"
+        mime:
+          type: string
+        ref:
+          type: string
+    ComparisonRule:
+      type: object
+      required:
+      - mode
+      properties:
+        mode:
+          type: string
+          enum:
+          - absolute
+          - relative
+        min:
+          type: number
+        max:
+          type: number
+        percent:
+          type: boolean
+    ComparisonOverview:
+      type: object
+      properties:
+        keysCountCommon:
+          type: integer
+        keysCountFresh:
+          type: integer
+        keysCountMissing:
+          type: integer
+        keysScore:
+          type: number
+        metricsCountCommon:
+          type: integer
+          description: Metric keys present in both this revision and the baseline
+        metricsCountFresh:
+          type: integer
+          description: Metric keys only in this revision
+        metricsCountMissing:
+          type: integer
+          description: Metric keys only in the baseline
+        metricsDurationCommonSrc:
+          type: integer
+          description: Sum of common metric durations (ms) for this revision
+        metricsDurationCommonDst:
+          type: integer
+          description: Sum of common metric durations (ms) for the baseline
+    ComparisonCell:
+      type: object
+      properties:
+        name:
+          type: string
+        score:
+          type: number
+        srcType:
+          type: string
+        dstType:
+          type: string
+        srcValue:
+          type: string
+        dstValue:
+          type: string
+    ComparisonCellar:
+      type: object
+      properties:
+        commonKeys:
+          type: array
+          items:
+            "$ref": "#/components/schemas/ComparisonCell"
+        newKeys:
+          type: array
+          items:
+            "$ref": "#/components/schemas/ComparisonCell"
+        missingKeys:
+          type: array
+          items:
+            "$ref": "#/components/schemas/ComparisonCell"
+    ComparisonResult:
+      type: object
+      description: src = submitted version, dst = baseline
+      properties:
+        overview:
+          "$ref": "#/components/schemas/ComparisonOverview"
+        src:
+          "$ref": "#/components/schemas/Metadata"
+        dst:
+          "$ref": "#/components/schemas/Metadata"
+        results:
+          "$ref": "#/components/schemas/ComparisonCellar"
+        asserts:
+          "$ref": "#/components/schemas/ComparisonCellar"
+        metrics:
+          "$ref": "#/components/schemas/ComparisonCellar"
