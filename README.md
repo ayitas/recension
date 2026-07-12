@@ -16,7 +16,7 @@ Recension captures how your software actually behaves for each test case, compar
 
 [![OpenAPI 3.2.0](https://img.shields.io/badge/OpenAPI-3.2.0-6BA539?logo=openapiinitiative&logoColor=white)](openapi.yaml)
 [![Swagger Editor](https://img.shields.io/badge/Open%20in-Swagger%20Editor-85EA2D?logo=swagger&logoColor=black)](https://editor.swagger.io/?url=https://raw.githubusercontent.com/ayitas/recension/dev/openapi.yaml)
-[![License](https://img.shields.io/badge/license-Apache--2.0-planned-lightgrey)](#license)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 ## Why the name?
 
@@ -323,4 +323,4 @@ Dashboard UI notes (fonts, dark mode, chrome): [`web/README.md`](web/README.md).
 
 ## License
 
-Apache-2.0 (planned)
+Licensed under the [Apache License, Version 2.0](LICENSE).
